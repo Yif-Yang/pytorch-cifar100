@@ -30,6 +30,9 @@ def train(epoch):
 
     start = time.time()
     net.train()
+    train_loss = 0
+    correct = 0
+    total = 0
     for batch_index, (images, labels) in enumerate(cifar100_training_loader):
 
         if args.gpu:
@@ -42,6 +45,12 @@ def train(epoch):
         loss.backward()
         optimizer.step()
 
+        train_loss += loss.item()
+        _, predicted = outputs.max(1)
+        total += labels.size(0)
+        correct += predicted.eq(labels).sum().item()
+
+
         n_iter = (epoch - 1) * len(cifar100_training_loader) + batch_index + 1
 
         last_layer = list(net.children())[-1]
@@ -51,13 +60,17 @@ def train(epoch):
             if 'bias' in name:
                 writer.add_scalar('LastLayerGradients/grad_norm2_bias', para.grad.norm(), n_iter)
 
-        print('Training Epoch: {epoch} [{trained_samples}/{total_samples}]\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
-            loss.item(),
-            optimizer.param_groups[0]['lr'],
-            epoch=epoch,
-            trained_samples=batch_index * args.b + len(images),
-            total_samples=len(cifar100_training_loader.dataset)
-        ))
+        # print('Training Epoch: {epoch} [{trained_samples}/{total_samples}]\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
+        #     loss.item(),
+        #     optimizer.param_groups[0]['lr'],
+        #     epoch=epoch,
+        #     trained_samples=batch_index * args.b + len(images),
+        #     total_samples=len(cifar100_training_loader.dataset)
+        # ))
+        if batch_index % 100 == 0:
+            print(batch_index, len(cifar100_training_loader), 'LR: %.4f | Train Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                         % (optimizer.param_groups[0]['lr'], loss / (batch_index + 1), 100. * correct / total, correct,
+                            total) )
 
         #update training loss for each iteration
         writer.add_scalar('Train/loss', loss.item(), n_iter)
