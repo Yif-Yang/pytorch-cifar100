@@ -53,9 +53,12 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         loss_main = loss_function(main_cls_out, labels)
         loss_aux1_cls = loss_function(aux_1, labels)
         loss_aux2_cls = loss_function(aux_2, labels)
+        loss_aux_ensemble = loss_function(ens, labels)
         loss_aux_dis = dis_criterion(softmax(aux_1, 1), softmax(aux_2, 1))
         loss_main_dis = dis_criterion(softmax(main_cls_out, 1), (softmax(aux_1.detach(), 1) + softmax(aux_2.detach(), 1)) / 2)
         loss = loss_main + loss_aux1_cls + loss_aux2_cls - loss_aux_dis * aux_dis_lambda + loss_main_dis * main_dis_lambda
+        if args.loss_aux_ensemble:
+             loss += loss_aux_ensemble
         loss.backward()
         optimizer.step()
 
@@ -91,7 +94,7 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
             print(batch_index, len(cifar100_training_loader), 'LR: %.4f | Train Loss: %.3f | Acc: %.3f%% | Acc aux1: %.3f%% | Acc aux2: %.3f%% | Acc ens: %.3f%% (%d/%d)'
                          % (optimizer.param_groups[0]['lr'], loss / (batch_index + 1), 100. * correct / total, 100. * correct_aux_1 / total,100. * correct_aux_2 / total, 100. * correct_ens / total, correct,
                             total) )
-            print(f"loss_main:{loss_main:.3f}, loss_aux1_cls:{loss_aux1_cls:.3f}, loss_aux2_cls:{loss_aux2_cls:.3f}, loss_aux_dis:{loss_aux_dis:.5f}, loss_main_dis:{loss_main_dis:.5f}")
+            print(f"loss_main:{loss_main:.3f}, loss_aux1_cls:{loss_aux1_cls:.3f}, loss_aux2_cls:{loss_aux2_cls:.3f}, loss_aux_ensemble:{loss_aux_ensemble:.3f}, loss_aux_dis:{loss_aux_dis:.5f}, loss_main_dis:{loss_main_dis:.5f}")
 
         #update training loss for each iteration
         writer.add_scalar('Train/loss', loss.item(), n_iter)
@@ -195,6 +198,7 @@ if __name__ == '__main__':
     parser.add_argument('-aux_dis_lambda', type=float, default=1, help='aux_dis_lambda loss rate')
     parser.add_argument('-main_dis_lambda', type=float, default=1, help='main_dis_lambda loss rate')
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
+    parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, help='loss_aux_ensemble')
     args = parser.parse_args()
 
     net = get_network(args)
