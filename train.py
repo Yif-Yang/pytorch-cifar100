@@ -35,6 +35,7 @@ def train(epoch, dis_lambda=1):
     correct = 0
     correct_aux_1 = 0
     correct_aux_2 = 0
+    correct_ens = 0
     total = 0
     for batch_index, (images, labels) in enumerate(cifar100_training_loader):
 
@@ -45,6 +46,10 @@ def train(epoch, dis_lambda=1):
         optimizer.zero_grad()
         outputs = net(images)
         main_cls_out, aux_1, aux_2 = outputs
+        ens = 0
+        for k in outputs[1:]:
+            ens += k
+        ens /= len(outputs[1:])
         loss_main = loss_function(main_cls_out, labels)
         loss_aux1_cls = loss_function(aux_1, labels)
         loss_aux2_cls = loss_function(aux_2, labels)
@@ -58,10 +63,12 @@ def train(epoch, dis_lambda=1):
         _, predicted = main_cls_out.max(1)
         _, predicted_aux_1 = aux_1.max(1)
         _, predicted_aux_2= aux_2.max(1)
+        _, predicted_ens= ens.max(1)
         total += labels.size(0)
         correct += predicted.eq(labels).sum().item()
         correct_aux_1 += predicted_aux_1.eq(labels).sum().item()
         correct_aux_2 += predicted_aux_2.eq(labels).sum().item()
+        correct_ens += predicted_ens.eq(labels).sum().item()
 
 
         n_iter = (epoch - 1) * len(cifar100_training_loader) + batch_index + 1
@@ -81,8 +88,8 @@ def train(epoch, dis_lambda=1):
         #     total_samples=len(cifar100_training_loader.dataset)
         # ))
         if batch_index % 100 == 0:
-            print(batch_index, len(cifar100_training_loader), 'LR: %.4f | Train Loss: %.3f | Acc: %.3f%% | Acc aux1: %.3f%% | Acc aux2: %.3f%% (%d/%d)'
-                         % (optimizer.param_groups[0]['lr'], loss / (batch_index + 1), 100. * correct / total, 100. * correct_aux_1 / total,100. * correct_aux_2 / total, correct,
+            print(batch_index, len(cifar100_training_loader), 'LR: %.4f | Train Loss: %.3f | Acc: %.3f%% | Acc aux1: %.3f%% | Acc aux2: %.3f%% | Acc ens: %.3f%% (%d/%d)'
+                         % (optimizer.param_groups[0]['lr'], loss / (batch_index + 1), 100. * correct / total, 100. * correct_aux_1 / total,100. * correct_aux_2 / total, 100. * correct_ens / total, correct,
                             total) )
             print(f"loss_main:{loss_main:.3f}, loss_aux1_cls:{loss_aux1_cls:.3f}, loss_aux2_cls:{loss_aux2_cls:.3f}, loss_aux_dis:{loss_aux_dis:.5f}, loss_main_dis:{loss_main_dis:.5f}")
 
@@ -102,14 +109,49 @@ def train(epoch, dis_lambda=1):
     print('epoch {} training time consumed: {:.2f}s'.format(epoch, finish - start))
 
 @torch.no_grad()
-def eval_training(epoch=0, tb=True, output_idx=0):
+def eval_training(epoch=0, tb=True, output_num=3):
 
     start = time.time()
     net.eval()
 
     test_loss = 0.0 # cost function error
     correct = 0.0
+    for output_idx in range(output_num):
+        for (images, labels) in cifar100_test_loader:
 
+            if args.gpu:
+                images = images.cuda()
+                labels = labels.cuda()
+
+            outputs = net(images)
+            outputs = outputs[output_idx]
+
+            loss = loss_function(outputs, labels)
+
+            test_loss += loss.item()
+            _, preds = outputs.max(1)
+            correct += preds.eq(labels).sum()
+
+        finish = time.time()
+        # if args.gpu:
+        #     print('GPU INFO.....')
+        #     print(torch.cuda.memory_summary(), end='')
+        print('Evaluating Network.....')
+        print('output_idx: {} \n Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
+            output_idx,
+            epoch,
+            test_loss / len(cifar100_test_loader.dataset),
+            correct.float() / len(cifar100_test_loader.dataset),
+            finish - start
+        ))
+        #add informations to tensorboard
+        if tb and output_idx == 0:
+            writer.add_scalar('Test/Average loss', test_loss / len(cifar100_test_loader.dataset), epoch)
+            writer.add_scalar('Test/Accuracy', correct.float() / len(cifar100_test_loader.dataset), epoch)
+        if output_idx == 0:
+            ret_acc = correct.float() / len(cifar100_test_loader.dataset)
+        test_loss = 0.0 # cost function error
+        correct = 0.0
     for (images, labels) in cifar100_test_loader:
 
         if args.gpu:
@@ -117,12 +159,15 @@ def eval_training(epoch=0, tb=True, output_idx=0):
             labels = labels.cuda()
 
         outputs = net(images)
-        outputs = outputs[output_idx]
+        ens = 0
+        for k in outputs[1:]:
+            ens += k
+        ens /= len(outputs[1:])
 
-        loss = loss_function(outputs, labels)
+        loss = loss_function(ens, labels)
 
         test_loss += loss.item()
-        _, preds = outputs.max(1)
+        _, preds = ens.max(1)
         correct += preds.eq(labels).sum()
 
     finish = time.time()
@@ -130,21 +175,14 @@ def eval_training(epoch=0, tb=True, output_idx=0):
     #     print('GPU INFO.....')
     #     print(torch.cuda.memory_summary(), end='')
     print('Evaluating Network.....')
-    print('output_idx: {} \n Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
-        output_idx,
+    print('Ensemble: Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
         epoch,
         test_loss / len(cifar100_test_loader.dataset),
         correct.float() / len(cifar100_test_loader.dataset),
         finish - start
     ))
-    print()
 
-    #add informations to tensorboard
-    if tb:
-        writer.add_scalar('Test/Average loss', test_loss / len(cifar100_test_loader.dataset), epoch)
-        writer.add_scalar('Test/Accuracy', correct.float() / len(cifar100_test_loader.dataset), epoch)
-
-    return correct.float() / len(cifar100_test_loader.dataset)
+    return ret_acc
 
 if __name__ == '__main__':
 
@@ -243,9 +281,10 @@ if __name__ == '__main__':
                 continue
 
         train(epoch, dis_lambda=args.dis_lambda)
-        acc = eval_training(epoch)
-        eval_training(epoch, output_idx=1)
-        eval_training(epoch, output_idx=2)
+        acc = eval_training(epoch, output_num=3)
+        if best_acc < acc:
+            best_acc = acc
+        print(f'best acc:{best_acc}')
         #start to save best performance model after learning rate decay to 0.01
         if epoch > settings.MILESTONES[1] and best_acc < acc:
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='best')
