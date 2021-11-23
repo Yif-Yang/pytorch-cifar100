@@ -27,7 +27,7 @@ from utils import get_network, get_training_dataloader, get_test_dataloader, War
     most_recent_folder, most_recent_weights, last_epoch, best_acc_weights
 from torch.nn.functional import softmax
 
-def train(epoch, dis_lambda=1):
+def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
 
     start = time.time()
     net.train()
@@ -55,7 +55,7 @@ def train(epoch, dis_lambda=1):
         loss_aux2_cls = loss_function(aux_2, labels)
         loss_aux_dis = dis_criterion(softmax(aux_1, 1), softmax(aux_2, 1))
         loss_main_dis = dis_criterion(softmax(main_cls_out, 1), (softmax(aux_1.detach(), 1) + softmax(aux_2.detach(), 1)) / 2)
-        loss = loss_main + loss_aux1_cls + loss_aux2_cls - loss_aux_dis * dis_lambda + loss_main_dis
+        loss = loss_main + loss_aux1_cls + loss_aux2_cls - loss_aux_dis * aux_dis_lambda + loss_main_dis * main_dis_lambda
         loss.backward()
         optimizer.step()
 
@@ -192,7 +192,8 @@ if __name__ == '__main__':
     parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
-    parser.add_argument('-dis_lambda', type=float, default=1, help='dis_lambda loss rate')
+    parser.add_argument('-aux_dis_lambda', type=float, default=1, help='aux_dis_lambda loss rate')
+    parser.add_argument('-main_dis_lambda', type=float, default=1, help='main_dis_lambda loss rate')
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
     args = parser.parse_args()
 
@@ -280,7 +281,7 @@ if __name__ == '__main__':
             if epoch <= resume_epoch:
                 continue
 
-        train(epoch, dis_lambda=args.dis_lambda)
+        train(epoch, aux_dis_lambda=args.aux_dis_lambda, main_dis_lambda=args.main_dis_lambda)
         acc = eval_training(epoch, output_num=3)
         if best_acc < acc:
             best_acc = acc
