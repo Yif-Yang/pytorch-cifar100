@@ -55,9 +55,11 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         loss_aux2_cls = loss_function(res3, labels)
         loss_aux_ensemble = loss_function(ens, labels)
         loss_aux_dis = dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1))
-        loss = loss_main + loss_aux1_cls + loss_aux2_cls - loss_aux_dis * aux_dis_lambda
+        loss = - loss_aux_dis * aux_dis_lambda
+        if args.loss_aux_single:
+            loss += loss_main + loss_aux1_cls + loss_aux2_cls
         if args.loss_aux_ensemble:
-             loss += loss_aux_ensemble
+            loss += loss_aux_ensemble
         loss.backward()
         optimizer.step()
 
@@ -199,12 +201,15 @@ if __name__ == '__main__':
     parser.add_argument('-main_dis_lambda', type=float, default=1, help='main_dis_lambda loss rate')
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
     parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, help='loss_aux_ensemble')
+    parser.add_argument('-loss_aux_single', action='store_true', default=False, help='loss_aux_ensemble')
 
     args = parser.parse_args()
 
     net = get_network(args)
     print(args)
     print(net)
+    if not os.path.exists(args.work_dir):
+        os.mkdir(args.work_dir)
     settings.CHECKPOINT_PATH = os.path.join(args.work_dir, 'ckpt')
     settings.LOG_DIR = os.path.join(args.work_dir, 'pb')
     #data preprocessing:
