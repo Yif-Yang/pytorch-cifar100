@@ -21,12 +21,29 @@ import torchvision.transforms as transforms
 
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-
+import shutil
 from conf import settings
 from utils import get_network, get_training_dataloader, get_test_dataloader, WarmUpLR, \
     most_recent_folder, most_recent_weights, last_epoch, best_acc_weights
 from torch.nn.functional import softmax
+import logging
 
+def get_logger(file_path):
+    """ Make python logger """
+    # [!] Since tensorboardX use default logger (e.g. logging.info()), we should use custom logger
+    logger = logging.getLogger('USNet')
+    log_format = '%(asctime)s | %(message)s'
+    formatter = logging.Formatter(log_format, datefmt='%m/%d %I:%M:%S %p')
+    file_handler = logging.FileHandler(file_path)
+    file_handler.setFormatter(formatter)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+    logger.setLevel(logging.INFO)
+
+    return logger
 def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
 
     start = time.time()
@@ -92,10 +109,10 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         #     total_samples=len(cifar100_training_loader.dataset)
         # ))
         if batch_index % 100 == 0:
-            print(batch_index, len(cifar100_training_loader), 'LR: %.4f | Train Loss: %.3f | Acc: %.3f%% | Acc aux1: %.3f%% | Acc aux2: %.3f%% | Acc ens: %.3f%% (%d/%d)'
+            logger.info(batch_index, len(cifar100_training_loader), 'LR: %.4f | Train Loss: %.3f | Acc: %.3f%% | Acc aux1: %.3f%% | Acc aux2: %.3f%% | Acc ens: %.3f%% (%d/%d)'
                          % (optimizer.param_groups[0]['lr'], loss / (batch_index + 1), 100. * correct / total, 100. * correct_aux_1 / total,100. * correct_aux_2 / total, 100. * correct_ens / total, correct,
                             total) )
-            print(f"loss_main:{loss_main:.3f}, loss_aux1_cls:{loss_aux1_cls:.3f}, loss_aux2_cls:{loss_aux2_cls:.3f}, loss_aux_ensemble:{loss_aux_ensemble:.3f}, loss_aux_dis:{loss_aux_dis:.5f}")
+            logger.info(f"loss_main:{loss_main:.3f}, loss_aux1_cls:{loss_aux1_cls:.3f}, loss_aux2_cls:{loss_aux2_cls:.3f}, loss_aux_ensemble:{loss_aux_ensemble:.3f}, loss_aux_dis:{loss_aux_dis:.5f}")
 
         #update training loss for each iteration
         writer.add_scalar('Train/loss', loss.item(), n_iter)
@@ -110,7 +127,7 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
 
     finish = time.time()
 
-    print('epoch {} training time consumed: {:.2f}s'.format(epoch, finish - start))
+    logger.info('epoch {} training time consumed: {:.2f}s'.format(epoch, finish - start))
 
 @torch.no_grad()
 def eval_training(epoch=0, tb=True, output_num=3):
@@ -140,8 +157,8 @@ def eval_training(epoch=0, tb=True, output_num=3):
         # if args.gpu:
         #     print('GPU INFO.....')
         #     print(torch.cuda.memory_summary(), end='')
-        print('Evaluating Network.....')
-        print('output_idx: {} \n Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
+        logger.info('Evaluating Network.....')
+        logger.info('output_idx: {} \n Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
             output_idx,
             epoch,
             test_loss / len(cifar100_test_loader.dataset),
@@ -178,8 +195,8 @@ def eval_training(epoch=0, tb=True, output_num=3):
     # if args.gpu:
     #     print('GPU INFO.....')
     #     print(torch.cuda.memory_summary(), end='')
-    print('Evaluating Network.....')
-    print('Ensemble: Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
+    logger.info('Evaluating Network.....')
+    logger.info('Ensemble: Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
         epoch,
         test_loss / len(cifar100_test_loader.dataset),
         correct.float() / len(cifar100_test_loader.dataset),
@@ -192,7 +209,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-net', type=str, required=True, help='net type')
-    parser.add_argument('-work_dir', type=str, required=True, help='dir name')
+    parser.add_argument('-work_dir', type=str, default='./work_dir', help='dir name')
+    parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_australiav100data/output/ensemble/cifar100', help='dir name')
     parser.add_argument('-gpu', action='store_true', default=True, help='use gpu or not')
     parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
@@ -206,10 +224,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     net = get_network(args)
-    print(args)
-    print(net)
     if not os.path.exists(args.work_dir):
         os.mkdir(args.work_dir)
+    logger = get_logger(os.path.join(args.work_dir, 'train.log'))
+    logger.info(args)
+    logger.info(net)
     settings.CHECKPOINT_PATH = os.path.join(args.work_dir, 'ckpt')
     settings.LOG_DIR = os.path.join(args.work_dir, 'pb')
     #data preprocessing:
@@ -269,17 +288,17 @@ if __name__ == '__main__':
         best_weights = best_acc_weights(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
         if best_weights:
             weights_path = os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder, best_weights)
-            print('found best acc weights file:{}'.format(weights_path))
-            print('load best training file to test acc...')
+            logger.info('found best acc weights file:{}'.format(weights_path))
+            logger.info('load best training file to test acc...')
             net.load_state_dict(torch.load(weights_path))
             best_acc = eval_training(tb=False)
-            print('best acc is {:0.2f}'.format(best_acc))
+            logger.info('best acc is {:0.2f}'.format(best_acc))
 
         recent_weights_file = most_recent_weights(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
         if not recent_weights_file:
             raise Exception('no recent weights file were found')
         weights_path = os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder, recent_weights_file)
-        print('loading weights file {} to resume training.....'.format(weights_path))
+        logger.info('loading weights file {} to resume training.....'.format(weights_path))
         net.load_state_dict(torch.load(weights_path))
 
         resume_epoch = last_epoch(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
@@ -297,18 +316,19 @@ if __name__ == '__main__':
         acc = eval_training(epoch, output_num=3)
         if best_acc < acc:
             best_acc = acc
-        print(f'best acc:{best_acc}')
+        logger.info(f'best acc:{best_acc}')
         #start to save best performance model after learning rate decay to 0.01
         if epoch > settings.MILESTONES[1] and best_acc < acc:
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='best')
-            print('saving weights file to {}'.format(weights_path))
+            logger.info('saving weights file to {}'.format(weights_path))
             torch.save(net.state_dict(), weights_path)
             best_acc = acc
             continue
 
         if not epoch % settings.SAVE_EPOCH:
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='regular')
-            print('saving weights file to {}'.format(weights_path))
+            logger.info('saving weights file to {}'.format(weights_path))
             torch.save(net.state_dict(), weights_path)
-
+    if os.path.exists(args.blob_dir):
+        shutil.copytree(args.work_dir, args.blob_dir)
     writer.close()
