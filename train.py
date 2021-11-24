@@ -202,7 +202,7 @@ def eval_training(epoch=0, tb=True, output_num=3):
         Batch_time.update(time.time() - end)
     logger.info(progress.display_avg())
 
-    return acc_ens[0]
+    return Acc_ens.avg
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self, name, fmt=':f'):
@@ -376,9 +376,11 @@ if __name__ == '__main__':
 
         train(epoch, aux_dis_lambda=args.aux_dis_lambda, main_dis_lambda=args.main_dis_lambda)
         acc = eval_training(epoch, output_num=3)
+        best_ep = 0
         if best_acc < acc:
             best_acc = acc
-        logger.info(f'best acc:{best_acc}')
+            best_ep = epoch
+        logger.info(f'epoch({epoch}): best acc-{best_acc:6.3f} from ep {best_ep}')
         #start to save best performance model after learning rate decay to 0.01
         if epoch > settings.MILESTONES[1] and best_acc < acc:
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='best')
