@@ -346,6 +346,7 @@ if __name__ == '__main__':
     checkpoint_path = os.path.join(checkpoint_path, '{net}-{epoch}-{type}.pth')
 
     best_acc = 0.0
+    best_ep = 0
     if args.resume:
         best_weights = best_acc_weights(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
         if best_weights:
@@ -365,7 +366,6 @@ if __name__ == '__main__':
 
         resume_epoch = last_epoch(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
 
-
     for epoch in range(1, settings.EPOCH + 1):
         if epoch > args.warm:
             train_scheduler.step(epoch)
@@ -376,7 +376,6 @@ if __name__ == '__main__':
 
         train(epoch, aux_dis_lambda=args.aux_dis_lambda, main_dis_lambda=args.main_dis_lambda)
         acc = eval_training(epoch, output_num=3)
-        best_ep = 0
         if best_acc < acc:
             best_acc = acc
             best_ep = epoch
