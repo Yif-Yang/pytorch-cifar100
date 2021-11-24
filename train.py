@@ -48,13 +48,25 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
 
     start = time.time()
     net.train()
-    train_loss = 0
-    correct = 0
-    correct_aux_1 = 0
-    correct_aux_2 = 0
-    correct_ens = 0
-    total = 0
+    Batch_time = AverageMeter('batch_time', ':6.3f')
+    Data_time = AverageMeter('Data time', ':6.3f')
+    Train_loss = AverageMeter('Train_loss', ':6.3f')
+    Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
+    Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
+    Loss_cls_3 = AverageMeter('Loss_cls_3', ':6.3f')
+    Loss_ensemble = AverageMeter('Loss_ensemble', ':6.3f')
+    Loss_dis = AverageMeter('Loss_dis', ':6.3f')
+    Acc1 = AverageMeter('Acc1@1', ':6.2f')
+    Acc2 = AverageMeter('Acc2@1', ':6.2f')
+    Acc3 = AverageMeter('Acc3@1', ':6.2f')
+    Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    progress = ProgressMeter(
+        len(cifar100_training_loader),
+        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_ens], prefix="Epoch: [{}]".format(epoch))
+    end = time.time()
+    logger.info(f"epoch: {epoch} LR: {optimizer.param_groups[0]['lr']}")
     for batch_index, (images, labels) in enumerate(cifar100_training_loader):
+        Data_time.update(time.time() - end)
 
         if args.gpu:
             labels = labels.cuda()
@@ -67,30 +79,34 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         for k in outputs:
             ens += k
         ens /= len(outputs)
-        loss_main = loss_function(res1, labels)
-        loss_aux1_cls = loss_function(res2, labels)
-        loss_aux2_cls = loss_function(res3, labels)
-        loss_aux_ensemble = loss_function(ens, labels)
-        loss_aux_dis = dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1))
-        loss = - loss_aux_dis * aux_dis_lambda
+        loss_cls_1 = loss_function(res1, labels)
+        loss_cls_2 = loss_function(res2, labels)
+        loss_cls_3 = loss_function(res3, labels)
+        loss_ensemble = loss_function(ens, labels)
+        loss_dis = dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1))
+        loss = - loss_dis * aux_dis_lambda
         if args.loss_aux_single:
-            loss += loss_main + loss_aux1_cls + loss_aux2_cls
+            loss += loss_cls_1 + loss_cls_2 + loss_cls_3
         if args.loss_aux_ensemble:
-            loss += loss_aux_ensemble
+            loss += loss_ensemble
         loss.backward()
         optimizer.step()
 
-        train_loss += loss.item()
-        _, predicted = res1.max(1)
-        _, predicted_aux_1 = res2.max(1)
-        _, predicted_aux_2= res3.max(1)
-        _, predicted_ens= ens.max(1)
-        total += labels.size(0)
-        correct += predicted.eq(labels).sum().item()
-        correct_aux_1 += predicted_aux_1.eq(labels).sum().item()
-        correct_aux_2 += predicted_aux_2.eq(labels).sum().item()
-        correct_ens += predicted_ens.eq(labels).sum().item()
+        Train_loss.update(loss.item(), labels.size(0))
+        Loss_cls_1.update(loss_cls_1.item(), labels.size(0))
+        Loss_cls_2.update(loss_cls_2.item(), labels.size(0))
+        Loss_cls_3.update(loss_cls_3.item(), labels.size(0))
+        Loss_ensemble.update(loss_ensemble.item(), labels.size(0))
+        Loss_dis.update(loss_dis.item(), labels.size(0))
 
+        acc_1 = accuracy(res1, labels)[0]
+        acc_2 = accuracy(res2, labels)[0]
+        acc_3 = accuracy(res3, labels)[0]
+        acc_ens = accuracy(ens, labels)[0]
+        Acc1.update(acc_1[0], labels.size(0))
+        Acc2.update(acc_2[0], labels.size(0))
+        Acc3.update(acc_3[0], labels.size(0))
+        Acc_ens.update(acc_ens[0], labels.size(0))
 
         n_iter = (epoch - 1) * len(cifar100_training_loader) + batch_index + 1
 
@@ -101,22 +117,17 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
             if 'bias' in name:
                 writer.add_scalar('LastLayerGradients/grad_norm2_bias', para.grad.norm(), n_iter)
 
-        # print('Training Epoch: {epoch} [{trained_samples}/{total_samples}]\tLoss: {:0.4f}\tLR: {:0.6f}'.format(
-        #     loss.item(),
-        #     optimizer.param_groups[0]['lr'],
-        #     epoch=epoch,
-        #     trained_samples=batch_index * args.b + len(images),
-        #     total_samples=len(cifar100_training_loader.dataset)
-        # ))
-        if batch_index % 100 == 0:
-            logger.info(batch_index, len(cifar100_training_loader), 'LR: %.4f | Train Loss: %.3f | Acc: %.3f%% | Acc aux1: %.3f%% | Acc aux2: %.3f%% | Acc ens: %.3f%% (%d/%d)'
-                         % (optimizer.param_groups[0]['lr'], loss / (batch_index + 1), 100. * correct / total, 100. * correct_aux_1 / total,100. * correct_aux_2 / total, 100. * correct_ens / total, correct,
-                            total) )
-            logger.info(f"loss_main:{loss_main:.3f}, loss_aux1_cls:{loss_aux1_cls:.3f}, loss_aux2_cls:{loss_aux2_cls:.3f}, loss_aux_ensemble:{loss_aux_ensemble:.3f}, loss_aux_dis:{loss_aux_dis:.5f}")
-
         #update training loss for each iteration
         writer.add_scalar('Train/loss', loss.item(), n_iter)
-
+        writer.add_scalar('Train/loss_cls_1', loss_cls_1.item(), n_iter)
+        writer.add_scalar('Train/loss_cls_2', loss_cls_2.item(), n_iter)
+        writer.add_scalar('Train/loss_cls_3', loss_cls_3.item(), n_iter)
+        writer.add_scalar('Train/loss_aux_ensemble', loss_ensemble.item(), n_iter)
+        writer.add_scalar('Train/loss_dis', loss_dis.item(), n_iter)
+        Batch_time.update(time.time() - end)
+        end = time.time()
+        if batch_index % args.print_freq == 0:
+            progress.display(batch_index)
         if epoch <= args.warm:
             warmup_scheduler.step()
 
@@ -134,76 +145,126 @@ def eval_training(epoch=0, tb=True, output_num=3):
 
     start = time.time()
     net.eval()
-
-    test_loss = 0.0 # cost function error
-    correct = 0.0
-    for output_idx in range(output_num):
-        for (images, labels) in cifar100_test_loader:
-
-            if args.gpu:
-                images = images.cuda()
-                labels = labels.cuda()
-
-            outputs = net(images)
-            outputs = outputs[output_idx]
-
-            loss = loss_function(outputs, labels)
-
-            test_loss += loss.item()
-            _, preds = outputs.max(1)
-            correct += preds.eq(labels).sum()
-
-        finish = time.time()
-        # if args.gpu:
-        #     print('GPU INFO.....')
-        #     print(torch.cuda.memory_summary(), end='')
-        logger.info('Evaluating Network.....')
-        logger.info('output_idx: {} \n Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
-            output_idx,
-            epoch,
-            test_loss / len(cifar100_test_loader.dataset),
-            correct.float() / len(cifar100_test_loader.dataset),
-            finish - start
-        ))
-        #add informations to tensorboard
-        if tb and output_idx == 0:
-            writer.add_scalar('Test/Average loss', test_loss / len(cifar100_test_loader.dataset), epoch)
-            writer.add_scalar('Test/Accuracy', correct.float() / len(cifar100_test_loader.dataset), epoch)
-        if output_idx == 0:
-            ret_acc = correct.float() / len(cifar100_test_loader.dataset)
-        test_loss = 0.0 # cost function error
-        correct = 0.0
+    Batch_time = AverageMeter('batch_time', ':6.3f')
+    Data_time = AverageMeter('Data time', ':6.3f')
+    Test_loss = AverageMeter('Train_loss', ':6.3f')
+    Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
+    Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
+    Loss_cls_3 = AverageMeter('Loss_cls_3', ':6.3f')
+    Loss_ensemble = AverageMeter('Loss_ensemble', ':6.3f')
+    Loss_dis = AverageMeter('Loss_dis', ':6.3f')
+    Acc1 = AverageMeter('Acc1@1', ':6.2f')
+    Acc2 = AverageMeter('Acc2@1', ':6.2f')
+    Acc3 = AverageMeter('Acc3@1', ':6.2f')
+    Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    progress = ProgressMeter(
+        len(cifar100_training_loader),
+        [Batch_time, Data_time, Test_loss, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_ens], prefix="Test Epoch: [{}]".format(epoch))
+    end = time.time()
     for (images, labels) in cifar100_test_loader:
+        Data_time.update(time.time() - end)
 
         if args.gpu:
             images = images.cuda()
             labels = labels.cuda()
 
         outputs = net(images)
+        res1, res2, res3 = outputs
         ens = 0
         for k in outputs:
             ens += k
         ens /= len(outputs)
+        loss_cls_1 = loss_function(res1, labels)
+        loss_cls_2 = loss_function(res2, labels)
+        loss_cls_3 = loss_function(res3, labels)
+        loss_ensemble = loss_function(ens, labels)
+        loss_dis = dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1))
+        loss = - loss_dis * args.aux_dis_lambda
+        if args.loss_aux_single:
+            loss += loss_cls_1 + loss_cls_2 + loss_cls_3
+        if args.loss_aux_ensemble:
+            loss += loss_ensemble
+        Test_loss.update(loss.item(), labels.size(0))
+        Loss_cls_1.update(loss_cls_1.item(), labels.size(0))
+        Loss_cls_2.update(loss_cls_2.item(), labels.size(0))
+        Loss_cls_3.update(loss_cls_3.item(), labels.size(0))
+        Loss_ensemble.update(loss_ensemble.item(), labels.size(0))
+        Loss_dis.update(loss_dis.item(), labels.size(0))
 
-        loss = loss_function(ens, labels)
+        acc_1 = accuracy(res1, labels)[0]
+        acc_2 = accuracy(res2, labels)[0]
+        acc_3 = accuracy(res3, labels)[0]
+        acc_ens = accuracy(ens, labels)[0]
+        Acc1.update(acc_1[0], labels.size(0))
+        Acc2.update(acc_2[0], labels.size(0))
+        Acc3.update(acc_3[0], labels.size(0))
+        Acc_ens.update(acc_ens[0], labels.size(0))
+        Batch_time.update(time.time() - end)
+    logger.info(progress.display_avg())
 
-        test_loss += loss.item()
-        _, preds = ens.max(1)
-        correct += preds.eq(labels).sum()
+    return acc_ens[0]
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self, name, fmt=':f'):
+        self.name = name
+        self.fmt = fmt
+        self.reset()
 
-    finish = time.time()
-    # if args.gpu:
-    #     print('GPU INFO.....')
-    #     print(torch.cuda.memory_summary(), end='')
-    logger.info('Evaluating Network.....')
-    logger.info('Ensemble: Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
-        epoch,
-        test_loss / len(cifar100_test_loader.dataset),
-        correct.float() / len(cifar100_test_loader.dataset),
-        finish - start
-    ))
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
 
-    return ret_acc
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+
+
+class ProgressMeter(object):
+    def __init__(self, num_batches, meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
+
+    def display(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        # print('\t'.join(entries))
+        logger.info('\t'.join(entries))
+
+    def display_avg(self):
+        entries = [self.prefix ]
+        entries += [f"{meter.name}:{meter.avg:6.3f}" for meter in self.meters]
+        # print('\t'.join(entries))
+        logger.info('\t'.join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = '{:' + str(num_digits) + 'd}'
+        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
+
+def accuracy(output, target, topk=(1,)):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        return res
 
 if __name__ == '__main__':
 
@@ -214,6 +275,7 @@ if __name__ == '__main__':
     parser.add_argument('-gpu', action='store_true', default=True, help='use gpu or not')
     parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
+    parser.add_argument('-print_freq', type=int, default=100, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
     parser.add_argument('-aux_dis_lambda', type=float, default=1, help='aux_dis_lambda loss rate')
     parser.add_argument('-main_dis_lambda', type=float, default=1, help='main_dis_lambda loss rate')
