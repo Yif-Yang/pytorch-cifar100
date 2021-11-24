@@ -16,7 +16,8 @@ parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, he
 parser.add_argument('-loss_aux_single', action='store_true', default=False, help='loss_aux_ensemble')
 
 args = parser.parse_args()
-
+if not os.path.exists('./work_dir'):
+      os.mkdir('./work_dir')
 exp_name = f"{args.net}_{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}_dis-length-{args.aux_dis_lambda}"
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       "nohup python train.py " \
