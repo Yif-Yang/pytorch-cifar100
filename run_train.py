@@ -27,6 +27,6 @@ cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       f"-aux_dis_lambda={args.aux_dis_lambda} " \
       f"-work_dir={os.path.join(args.work_dir, exp_name)} " \
       f"-blob_dir={args.blob_dir} " \
-      f"> res18.{exp_name}.out &"
+      f"> {exp_name}.out &"
 print(cmd)
 os.system(cmd)
