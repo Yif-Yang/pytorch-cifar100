@@ -164,9 +164,9 @@ def eval_training(epoch=0, tb=True, output_num=3):
 
         outputs = net(images)
         ens = 0
-        for k in outputs[1:]:
+        for k in outputs:
             ens += k
-        ens /= len(outputs[1:])
+        ens /= len(outputs)
 
         loss = loss_function(ens, labels)
 
