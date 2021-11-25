@@ -1,7 +1,7 @@
 import argparse
 import os
 parser = argparse.ArgumentParser()
-parser.add_argument('-net', type=str, required=True, help='net type')
+parser.add_argument('-net', type=str, default='resnet18', help='net type')
 parser.add_argument('-work_dir', type=str, default='./work_dir', help='dir name')
 parser.add_argument('-exp_name', type=str, default='baseline', help='exp_name ')
 parser.add_argument('-runs', type=str, default='1', help='exp_name ')
@@ -21,9 +21,6 @@ exp_name = f"{args.exp_name}_{args.net}_{f'_seed_{args.seed}' if args.seed > 0 e
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       "nohup python train.py " \
       f"-net {args.net} " \
-      f"{'-loss_aux_single ' if args.loss_aux_single else ''}" \
-      f"{'-loss_aux_ensemble ' if args.loss_aux_ensemble else ''}" \
-      f"-aux_dis_lambda={args.aux_dis_lambda} " \
       f"-work_dir={os.path.join(args.work_dir, exp_name)} " \
       f"-blob_dir={args.blob_dir} " \
       f"-seed={args.seed} " \
