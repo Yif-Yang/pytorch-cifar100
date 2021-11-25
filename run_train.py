@@ -14,7 +14,7 @@ parser.add_argument('-main_dis_lambda', type=float, default=1, help='main_dis_la
 parser.add_argument('-resume', action='store_true', default=False, help='resume training')
 parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, help='loss_aux_ensemble')
 parser.add_argument('-loss_aux_single', action='store_true', default=False, help='loss_aux_ensemble')
-parser.add_argument('--seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
+parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
 
 args = parser.parse_args()
 if not os.path.exists('./work_dir'):

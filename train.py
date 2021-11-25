@@ -282,7 +282,7 @@ if __name__ == '__main__':
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
     parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, help='loss_aux_ensemble')
     parser.add_argument('-loss_aux_single', action='store_true', default=False, help='loss_aux_ensemble')
-    parser.add_argument('--seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
+    parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
 
     args = parser.parse_args()
     torch.backends.cudnn.benchmark = True
