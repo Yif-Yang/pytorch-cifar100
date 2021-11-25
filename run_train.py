@@ -14,11 +14,12 @@ parser.add_argument('-main_dis_lambda', type=float, default=1, help='main_dis_la
 parser.add_argument('-resume', action='store_true', default=False, help='resume training')
 parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, help='loss_aux_ensemble')
 parser.add_argument('-loss_aux_single', action='store_true', default=False, help='loss_aux_ensemble')
+parser.add_argument('--seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
 
 args = parser.parse_args()
 if not os.path.exists('./work_dir'):
       os.mkdir('./work_dir')
-exp_name = f"{args.net}_{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}dis-length-{args.aux_dis_lambda}"
+exp_name = f"{args.net}_{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}dis-length-{args.aux_dis_lambda}{f'_seed_{args.seed}' if args.seed > 0 else ''}"
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       "nohup python train.py " \
       f"-net {args.net} " \

@@ -282,9 +282,17 @@ if __name__ == '__main__':
     parser.add_argument('-resume', action='store_true', default=False, help='resume training')
     parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, help='loss_aux_ensemble')
     parser.add_argument('-loss_aux_single', action='store_true', default=False, help='loss_aux_ensemble')
+    parser.add_argument('--seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
 
     args = parser.parse_args()
-
+    torch.backends.cudnn.benchmark = True
+    if args.seed > 0:
+        print(f'set seed {args.seed}')
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed(args.seed)
+        np.random.seed(args.seed)
+    else:
+        print('not set seed')
     net = get_network(args)
     if not os.path.exists(args.work_dir):
         os.mkdir(args.work_dir)
