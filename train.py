@@ -279,6 +279,7 @@ if __name__ == '__main__':
     parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_australiav100data/output/ensemble/cifar100', help='dir name')
     parser.add_argument('-gpu', action='store_true', default=True, help='use gpu or not')
     parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
+    parser.add_argument('-start_epoch', type=int, default=0, help='batch size for dataloader')
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
     parser.add_argument('-print_freq', type=int, default=100, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
@@ -304,7 +305,6 @@ if __name__ == '__main__':
     logger = get_logger(os.path.join(args.work_dir, 'train.log'))
     logger.info(args)
     logger.info(net)
-    settings.CHECKPOINT_PATH = os.path.join(args.work_dir, 'ckpt')
     settings.LOG_DIR = os.path.join(args.work_dir, 'pb')
     #data preprocessing:
     cifar100_training_loader = get_training_dataloader(
