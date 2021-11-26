@@ -384,22 +384,18 @@ if __name__ == '__main__':
 
         train(epoch, aux_dis_lambda=args.aux_dis_lambda, main_dis_lambda=args.main_dis_lambda)
         acc = eval_training(epoch, output_num=3)
-        if best_acc < acc:
-            best_acc = acc
-            best_ep = epoch
-        logger.info(f'epoch({epoch}): best acc-{best_acc:6.3f} from ep {best_ep}')
         #start to save best performance model after learning rate decay to 0.01
         if epoch > settings.MILESTONES[1] and best_acc < acc:
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='best')
             logger.info('saving weights file to {}'.format(weights_path))
             torch.save(net.state_dict(), weights_path)
             best_acc = acc
+            best_ep = epoch
             continue
-
+        logger.info(f'epoch({epoch}): best acc-{best_acc:6.3f} from ep {best_ep}')
         if not epoch % settings.SAVE_EPOCH:
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='regular')
             logger.info('saving weights file to {}'.format(weights_path))
             torch.save(net.state_dict(), weights_path)
-    if os.path.exists(args.blob_dir):
-        shutil.copytree(args.work_dir, args.blob_dir)
+    os.system(f'cp -r {args.work_dir} {args.blob_dir}')
     writer.close()
