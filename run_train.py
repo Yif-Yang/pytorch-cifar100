@@ -3,6 +3,8 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument('-net', type=str, required=True, help='net type')
 parser.add_argument('-work_dir', type=str, default='./work_dir', help='dir name')
+parser.add_argument('-exp_name', type=str, default='diversity_3way', help='exp_name ')
+parser.add_argument('-runs', type=str, default='1', help='exp_name ')
 parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_australiav100data/output/ensemble/cifar100',
                     help='dir name')
 parser.add_argument('-gpu',  type=int, default=0, help='batch size for dataloader')
@@ -19,7 +21,7 @@ parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random see
 args = parser.parse_args()
 if not os.path.exists('./work_dir'):
       os.mkdir('./work_dir')
-exp_name = f"{args.net}_lr{args.lr}_{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}dis-length-{args.aux_dis_lambda}{f'_seed_{args.seed}' if args.seed > 0 else ''}"
+exp_name = f"{args.exp_name}_{args.net}_lr{args.lr}_{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}dis-length-{args.aux_dis_lambda}{f'_seed_{args.seed}' if args.seed > 0 else ''}_run-{args.runs}"
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       "nohup python train.py " \
       f"-net {args.net} " \

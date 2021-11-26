@@ -291,13 +291,17 @@ if __name__ == '__main__':
     parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
 
     args = parser.parse_args()
-    torch.backends.cudnn.benchmark = True
     if args.seed > 0:
         print(f'set seed {args.seed}')
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
         np.random.seed(args.seed)
+        import random
+        random.seed(args.seed)
+        torch.backends.cudnn.deterministic = True
     else:
+        torch.backends.cudnn.benchmark = True
         print('not set seed')
     net = get_network(args)
     if not os.path.exists(args.work_dir):
