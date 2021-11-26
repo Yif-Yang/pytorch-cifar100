@@ -19,10 +19,11 @@ parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random see
 args = parser.parse_args()
 if not os.path.exists('./work_dir'):
       os.mkdir('./work_dir')
-exp_name = f"{args.net}_{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}dis-length-{args.aux_dis_lambda}{f'_seed_{args.seed}' if args.seed > 0 else ''}"
+exp_name = f"{args.net}_lr{args.lr}_{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}dis-length-{args.aux_dis_lambda}{f'_seed_{args.seed}' if args.seed > 0 else ''}"
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       "nohup python train.py " \
       f"-net {args.net} " \
+      f"-lr {args.lr} " \
       f"{'-loss_aux_single ' if args.loss_aux_single else ''}" \
       f"{'-loss_aux_ensemble ' if args.loss_aux_ensemble else ''}" \
       f"-aux_dis_lambda={args.aux_dis_lambda} " \

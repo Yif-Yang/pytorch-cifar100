@@ -192,11 +192,12 @@ def test(epoch=0, tb=True, output_num=3):
     print(f'ensemble missed {emsemble_miscls}, but {ensemble_0_aux_1} sample in aux_cls shotted 1 time, {ensemble_0_aux_2} shotted 2 time, {ensemble_0_aux_3} shotted 3 time')
     #see label
     # label_all[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0][
-    #     torch.sum(aux_cls_map[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 1][2]
-    #
+    #     [torch.sum(aux_cls_map[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 1]][
+    #     5].cpu().numpy()
     # torch.stack((softmax(all_res_1, 1), softmax(all_res_2, 1), softmax(all_res_3, 1)), dim=1)[
     #     torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0][
-    #     torch.sum(aux_cls_map[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 1].cpu().numpy()[2]
+    #     [torch.sum(aux_cls_map[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 1]][
+    #     5].cpu().numpy()
     return Acc_ens.avg
 
 if __name__ == '__main__':
@@ -212,7 +213,7 @@ if __name__ == '__main__':
     loss_function = torch.nn.CrossEntropyLoss()
     net = get_network(args)
 
-    cifar100_test_loader = get_training_dataloader(
+    cifar100_test_loader = get_test_dataloader(
         settings.CIFAR100_TRAIN_MEAN,
         settings.CIFAR100_TRAIN_STD,
         #settings.CIFAR100_PATH,
