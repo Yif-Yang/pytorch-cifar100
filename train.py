@@ -279,7 +279,7 @@ if __name__ == '__main__':
     parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_australiav100data/output/ensemble/cifar100', help='dir name')
     parser.add_argument('-gpu', action='store_true', default=True, help='use gpu or not')
     parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
-    parser.add_argument('-start_epoch', type=int, default=0, help='batch size for dataloader')
+    parser.add_argument('-start_epoch', type=int, default=1, help='batch size for dataloader')
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
     parser.add_argument('-print_freq', type=int, default=100, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
@@ -377,13 +377,21 @@ if __name__ == '__main__':
         if best_acc < acc:
             best_acc = acc
             best_ep = epoch
+            save_checkpoint({
+                'epoch': epoch,
+                'arch': args.net,
+                'state_dict': net.state_dict(),
+                'optimizer' : optimizer.state_dict(),
+            }, is_best=True, filename=checkpoint_path+'checkpoint_{:04d}.pth.tar'.format(epoch))
+        elif epoch % 20 == 0:
+                save_checkpoint({
+                    'epoch': epoch,
+                    'arch': args.net,
+                    'state_dict': net.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                }, is_best=False, filename=checkpoint_path + 'checkpoint_{:04d}.pth.tar'.format(epoch))
         logger.info(f'epoch({epoch}): best acc-{best_acc:6.3f} from ep {best_ep}')
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'arch': args.net,
-            'state_dict': net.state_dict(),
-            'optimizer' : optimizer.state_dict(),
-        }, is_best=best_acc == acc, filename=checkpoint_path+'checkpoint_{:04d}.pth.tar'.format(epoch))
+
 
     os.system(f'cp -r {args.work_dir} {args.blob_dir}')
     writer.close()
