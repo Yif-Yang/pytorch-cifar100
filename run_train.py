@@ -17,10 +17,11 @@ parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random see
 args = parser.parse_args()
 if not os.path.exists('./work_dir'):
       os.mkdir('./work_dir')
-exp_name = f"{args.exp_name}_{args.net}_{f'_seed_{args.seed}' if args.seed > 0 else ''}_run-{args.runs}"
+exp_name = f"{args.exp_name}_{args.net}_lr{args.lr}_{f'_seed_{args.seed}' if args.seed > 0 else ''}_run-{args.runs}"
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       "nohup python train.py " \
       f"-net {args.net} " \
+      f"-lr {args.lr} " \
       f"-work_dir={os.path.join(args.work_dir, exp_name)} " \
       f"-blob_dir={args.blob_dir} " \
       f"-seed={args.seed} " \

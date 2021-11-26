@@ -195,6 +195,11 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
+def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+    torch.save(state, filename)
+    if is_best:
+        shutil.copyfile(filename, os.path.join(os.path.split(filename)[0], 'model_best.pth.tar'))
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
@@ -203,6 +208,7 @@ if __name__ == '__main__':
     parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_australiav100data/output/ensemble/cifar100', help='dir name')
     parser.add_argument('-gpu', action='store_true', default=True, help='use gpu or not')
     parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
+    parser.add_argument('-start_epoch', type=int, default=1, help='batch size for dataloader')
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
     parser.add_argument('-print_freq', type=int, default=100, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
@@ -210,13 +216,17 @@ if __name__ == '__main__':
     parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
 
     args = parser.parse_args()
-    torch.backends.cudnn.benchmark = True
     if args.seed > 0:
         print(f'set seed {args.seed}')
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
         np.random.seed(args.seed)
+        import random
+        random.seed(args.seed)
+        torch.backends.cudnn.deterministic = True
     else:
+        torch.backends.cudnn.benchmark = True
         print('not set seed')
     net = get_network(args)
     if not os.path.exists(args.work_dir):
@@ -224,7 +234,6 @@ if __name__ == '__main__':
     logger = get_logger(os.path.join(args.work_dir, 'train.log'))
     logger.info(args)
     logger.info(net)
-    settings.CHECKPOINT_PATH = os.path.join(args.work_dir, 'ckpt')
     settings.LOG_DIR = os.path.join(args.work_dir, 'pb')
     #data preprocessing:
     cifar100_training_loader = get_training_dataloader(
@@ -248,16 +257,22 @@ if __name__ == '__main__':
     train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
     warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm)
-
     if args.resume:
-        recent_folder = most_recent_folder(os.path.join(settings.CHECKPOINT_PATH, args.net), fmt=settings.DATE_FORMAT)
-        if not recent_folder:
-            raise Exception('no recent folder were found')
-
-        checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder)
-
-    else:
-        checkpoint_path = os.path.join(settings.CHECKPOINT_PATH, args.net, settings.TIME_NOW)
+        if os.path.isfile(args.resume):
+            print("=> loading checkpoint '{}'".format(args.resume))
+            if args.gpu is None:
+                checkpoint = torch.load(args.resume)
+            else:
+                # Map model to be loaded to specified single gpu.
+                loc = 'cuda:{}'.format(args.gpu)
+                checkpoint = torch.load(args.resume, map_location=loc)
+            args.start_epoch = checkpoint['epoch']
+            net.load_state_dict(checkpoint['state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(args.resume, checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(args.resume))
 
     #use tensorboard
     if not os.path.exists(settings.LOG_DIR):
@@ -273,57 +288,37 @@ if __name__ == '__main__':
     writer.add_graph(net, input_tensor)
 
     #create checkpoint folder to save model
+    checkpoint_path = os.path.join(args.work_dir, 'ckpt')
     if not os.path.exists(checkpoint_path):
         os.makedirs(checkpoint_path)
-    checkpoint_path = os.path.join(checkpoint_path, '{net}-{epoch}-{type}.pth')
 
     best_acc = 0.0
     best_ep = 0
-    if args.resume:
-        best_weights = best_acc_weights(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
-        if best_weights:
-            weights_path = os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder, best_weights)
-            logger.info('found best acc weights file:{}'.format(weights_path))
-            logger.info('load best training file to test acc...')
-            net.load_state_dict(torch.load(weights_path))
-            best_acc = eval_training(tb=False)
-            logger.info('best acc is {:0.2f}'.format(best_acc))
 
-        recent_weights_file = most_recent_weights(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
-        if not recent_weights_file:
-            raise Exception('no recent weights file were found')
-        weights_path = os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder, recent_weights_file)
-        logger.info('loading weights file {} to resume training.....'.format(weights_path))
-        net.load_state_dict(torch.load(weights_path))
-
-        resume_epoch = last_epoch(os.path.join(settings.CHECKPOINT_PATH, args.net, recent_folder))
-
-    for epoch in range(1, settings.EPOCH + 1):
+    for epoch in range(args.start_epoch, settings.EPOCH + 1):
         if epoch > args.warm:
             train_scheduler.step(epoch)
-
-        if args.resume:
-            if epoch <= resume_epoch:
-                continue
 
         train(epoch)
         acc = eval_training(epoch)
         if best_acc < acc:
             best_acc = acc
             best_ep = epoch
+            save_checkpoint({
+                'epoch': epoch,
+                'arch': args.net,
+                'state_dict': net.state_dict(),
+                'optimizer' : optimizer.state_dict(),
+            }, is_best=True, filename=checkpoint_path+'checkpoint_{:04d}.pth.tar'.format(epoch))
+        elif epoch % 20 == 0:
+                save_checkpoint({
+                    'epoch': epoch,
+                    'arch': args.net,
+                    'state_dict': net.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                }, is_best=False, filename=checkpoint_path + 'checkpoint_{:04d}.pth.tar'.format(epoch))
         logger.info(f'epoch({epoch}): best acc-{best_acc:6.3f} from ep {best_ep}')
-        #start to save best performance model after learning rate decay to 0.01
-        if epoch > settings.MILESTONES[1] and best_acc < acc:
-            weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='best')
-            logger.info('saving weights file to {}'.format(weights_path))
-            torch.save(net.state_dict(), weights_path)
-            best_acc = acc
-            continue
 
-        if not epoch % settings.SAVE_EPOCH:
-            weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='regular')
-            logger.info('saving weights file to {}'.format(weights_path))
-            torch.save(net.state_dict(), weights_path)
-    if os.path.exists(args.blob_dir):
-        shutil.copytree(args.work_dir, args.blob_dir)
+
+    os.system(f'cp -r {args.work_dir} {args.blob_dir}')
     writer.close()
