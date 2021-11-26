@@ -178,10 +178,10 @@ def eval_training(epoch=0, tb=True, output_num=3):
         loss_cls_2 = loss_function(res2, labels)
         loss_cls_3 = loss_function(res3, labels)
         loss_ensemble = loss_function(ens, labels)
-        loss_dis = dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1))
+        loss_dis = (dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1))) / 3
         loss = - loss_dis * args.aux_dis_lambda
         if args.loss_aux_single:
-            loss += loss_cls_1 + loss_cls_2 + loss_cls_3
+            loss += (loss_cls_1 + loss_cls_2 + loss_cls_3) / 3
         if args.loss_aux_ensemble:
             loss += loss_ensemble
         Test_loss.update(loss.item(), labels.size(0))
