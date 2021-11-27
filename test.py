@@ -221,7 +221,8 @@ if __name__ == '__main__':
         batch_size=args.b,
     )
 
-    net.load_state_dict(torch.load(args.weights))
+    net.load_state_dict(torch.load(args.weights)['state_dict'])
+
     print(net)
     net.eval()
 
