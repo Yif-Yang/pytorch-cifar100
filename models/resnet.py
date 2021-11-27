@@ -98,6 +98,14 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.linear_aux_1 = nn.Linear(512*block.expansion, num_classes)
         self.linear_aux_2 = nn.Linear(512*block.expansion, num_classes)
+
+        hdim = num_classes
+        self.feat_proj = nn.Linear(512 * block.expansion, num_classes)
+        self.k_m = nn.Linear(num_classes, hdim)
+        self.q_m = nn.Linear(num_classes, hdim)
+        self.v_m = nn.Linear(num_classes, hdim)
+
+
     def _make_layer(self, block, out_channels, num_blocks, stride):
         """make resnet layers(by layer i didnt mean this 'layer' was the
         same as a neuron netowork layer, ex. conv layer), one layer may
@@ -134,6 +142,28 @@ class ResNet(nn.Module):
         ret = self.fc(output), self.linear_aux_1(output), self.linear_aux_2(output)
 
         return ret
+    def forward_cls_cls(self, x):
+        output = self.conv1(x)
+        output = self.conv2_x(output)
+        output = self.conv3_x(output)
+        output = self.conv4_x(output)
+        output = self.conv5_x(output)
+        output = self.avg_pool(output)
+        output = output.view(output.size(0), -1)
+        cls_1, cls_2, cls_3 = self.fc(output).detach(), self.linear_aux_1(output).detach(), self.linear_aux_2(output).detach()
+        feat = self.feat_proj(output.detach())
+        k_1, k_2, k_3, k_f= self.k_m(cls_1), self.k_m(cls_2), self.k_m(cls_3), self.k_m(feat)
+        v_1, v_2, v_3, v_f= self.v_m(cls_1), self.v_m(cls_2), self.v_m(cls_3), self.v_m(feat)
+        q_feat = self.q_m(feat)
+        w1 = torch.bmm(q_feat.unsqueeze(1), k_1.unsqueeze(1).transpose(2, 1))
+        w2 = torch.bmm(q_feat.unsqueeze(1), k_2.unsqueeze(1).transpose(2, 1))
+        w3 = torch.bmm(q_feat.unsqueeze(1), k_3.unsqueeze(1).transpose(2, 1))
+        w_f = torch.bmm(q_feat.unsqueeze(1), k_f.unsqueeze(1).transpose(2, 1))
+        w_all = torch.cat((w1, w2, w3, w_f), dim=-1)
+        w_all = torch.softmax(w_all, dim=-1)
+        v_all = torch.stack((v_1, v_2, v_3, v_f), dim=1)
+        ret = torch.bmm(w_all, v_all).squeeze()
+        return  cls_1, cls_2, cls_3, feat, ret
 
 def resnet18():
     """ return a ResNet 18 object
