@@ -60,11 +60,10 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
     Acc3 = AverageMeter('Acc3@1', ':6.2f')
     Acc_mean = AverageMeter('Acc_mean@1', ':6.2f')
-    Acc_feat = AverageMeter('Acc_feat@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
     progress = ProgressMeter(
         len(cifar100_training_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_mean, Acc_feat, Acc_ens], prefix="Epoch: [{}]".format(epoch))
+        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_mean, Acc_ens], prefix="Epoch: [{}]".format(epoch))
     end = time.time()
     logger.info(f"epoch: {epoch} LR: {optimizer.param_groups[0]['lr']}")
     for batch_index, (images, labels) in enumerate(cifar100_training_loader):
@@ -74,11 +73,10 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         images = images.cuda()
 
         optimizer.zero_grad()
-        res1, res2, res3, feat_cls, ens = net.forward_cls_cls(images)
+        res1, res2, res3, ens = net.forward_cls_cls(images)
         naive_mean = (res1 + res2 + res3) / 3
         loss_ensemble = loss_function(ens, labels)
-        loss_cls = loss_function(feat_cls, labels)
-        loss = (loss_ensemble + loss_cls) / 2
+        loss = loss_ensemble
         loss.backward()
         optimizer.step()
 
@@ -89,13 +87,11 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         acc_2 = accuracy(res2, labels)[0]
         acc_3 = accuracy(res3, labels)[0]
         acc_mean = accuracy(naive_mean, labels)[0]
-        acc_feat = accuracy(feat_cls, labels)[0]
         acc_ens = accuracy(ens, labels)[0]
         Acc1.update(acc_1[0], labels.size(0))
         Acc2.update(acc_2[0], labels.size(0))
         Acc3.update(acc_3[0], labels.size(0))
         Acc_mean.update(acc_mean[0], labels.size(0))
-        Acc_feat.update(acc_feat[0], labels.size(0))
         Acc_ens.update(acc_ens[0], labels.size(0))
 
         n_iter = (epoch - 1) * len(cifar100_training_loader) + batch_index + 1
@@ -142,17 +138,15 @@ def eval_training(epoch=0, tb=True, output_num=3):
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
     Acc3 = AverageMeter('Acc3@1', ':6.2f')
     Acc_mean = AverageMeter('Acc_mean@1', ':6.2f')
-    Acc_feat = AverageMeter('Acc_feat@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
     t5_Acc1 = AverageMeter('t5_Acc1@1', ':6.2f')
     t5_Acc2 = AverageMeter('t5_Acc2@1', ':6.2f')
     t5_Acc3 = AverageMeter('t5_Acc3@1', ':6.2f')
-    t5_Acc_feat = AverageMeter('t5_Acc_feat@1', ':6.2f')
     t5_Acc_mean = AverageMeter('t5_Acc_mean@1', ':6.2f')
     t5_Acc_ens = AverageMeter('t5_Acc_ens@1', ':6.2f')
     progress = ProgressMeter(
         len(cifar100_test_loader),
-        [Batch_time, Data_time, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_mean, Acc_feat, Acc_ens, t5_Acc1, t5_Acc2, t5_Acc3, t5_Acc_mean, t5_Acc_feat, t5_Acc_ens], prefix="Test Epoch: [{}]".format(epoch))
+        [Batch_time, Data_time, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_mean, Acc_ens, t5_Acc1, t5_Acc2, t5_Acc3, t5_Acc_mean, t5_Acc_ens], prefix="Test Epoch: [{}]".format(epoch))
     end = time.time()
     import numpy as np
     all_res_1, all_res_2, all_res_3, all_res_ens, label_all = [], [], [], [], []
@@ -163,7 +157,7 @@ def eval_training(epoch=0, tb=True, output_num=3):
         images = images.cuda()
         labels = labels.cuda()
 
-        res1, res2, res3, feat_cls, ens = net.forward_cls_cls(images)
+        res1, res2, res3, ens = net.forward_cls_cls(images)
         naive_mean = (res1 + res2 + res3) / 3
 
         all_res_1.append(res1)
@@ -192,20 +186,17 @@ def eval_training(epoch=0, tb=True, output_num=3):
         acc_2, t5_acc_2 = accuracy(res2, labels, topk=(1, 5))
         acc_3, t5_acc_3 = accuracy(res3, labels, topk=(1, 5))
         acc_mean, t5_acc_mean = accuracy(naive_mean, labels, topk=(1, 5))
-        acc_feat, t5_acc_feat = accuracy(feat_cls, labels, topk=(1, 5))
 
         acc_ens, t5_acc_ens = accuracy(ens, labels, topk=(1, 5))
         Acc1.update(acc_1[0], labels.size(0))
         Acc2.update(acc_2[0], labels.size(0))
         Acc3.update(acc_3[0], labels.size(0))
         Acc_mean.update(acc_mean[0], labels.size(0))
-        Acc_feat.update(acc_feat[0], labels.size(0))
         Acc_ens.update(acc_ens[0], labels.size(0))
         t5_Acc1.update(t5_acc_1[0], labels.size(0))
         t5_Acc2.update(t5_acc_2[0], labels.size(0))
         t5_Acc3.update(t5_acc_3[0], labels.size(0))
         t5_Acc_mean.update(t5_acc_mean[0], labels.size(0))
-        t5_Acc_feat.update(t5_acc_feat[0], labels.size(0))
         t5_Acc_ens.update(t5_acc_ens[0], labels.size(0))
         Batch_time.update(time.time() - end)
     print(progress.display_avg())
