@@ -73,7 +73,14 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         images = images.cuda()
 
         optimizer.zero_grad()
-        res1, res2, res3, ens = net.forward_cls_cls(images)
+        res1, res2, res3, w = net.forward_cls_cls(images)
+        _, w_inx = w.topk(1, 1, True, True)
+
+        res_aux = torch.stack((res1, res2, res3), dim=1)
+        ens = res1.detach().clone()
+        for idx, w_idx in enumerate(w_inx):
+            ens[idx] = res_aux[idx, w_idx, :]
+        w_assign(res1, res2, res3, labels)
         naive_mean = (res1 + res2 + res3) / 3
         loss_ensemble = loss_function(ens, labels)
         loss = loss_ensemble
@@ -293,7 +300,22 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+def w_assign(outputs, target):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(1)
+        batch_size = target.size(0)
+        correct_list = []
+        for i in range(outputs):
+        _, pred_1 = res1.topk(maxk, 1, True, True)
+        pred_1 = pred_1.t()
+        correct = pred_1.eq(target.view(1, -1).expand_as(pred_1))
 
+        res = []
+        for k in topk:
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        return res
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
     if is_best:

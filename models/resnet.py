@@ -159,10 +159,10 @@ class ResNet(nn.Module):
         w2 = torch.bmm(q_feat.unsqueeze(1), k_2.unsqueeze(1).transpose(2, 1))
         w3 = torch.bmm(q_feat.unsqueeze(1), k_3.unsqueeze(1).transpose(2, 1))
         w_all = torch.cat((w1, w2, w3), dim=-1)
-        w_all = torch.softmax(w_all, dim=-1)
-        v_all = torch.stack((v_1, v_2, v_3), dim=1)
-        ret = torch.bmm(w_all, v_all).squeeze()
-        return  cls_1, cls_2, cls_3, ret
+        w_all = torch.softmax(w_all, dim=-1).squeeze()
+        # v_all = torch.stack((v_1, v_2, v_3), dim=1)
+        # ret = torch.bmm(w_all, v_all).squeeze()
+        return  cls_1, cls_2, cls_3, w_all
 
 def resnet18():
     """ return a ResNet 18 object
