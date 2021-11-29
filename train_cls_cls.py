@@ -51,6 +51,7 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
     Batch_time = AverageMeter('batch_time', ':6.3f')
     Data_time = AverageMeter('Data time', ':6.3f')
     Train_loss = AverageMeter('Train_loss', ':6.3f')
+    Loss_cls_assign = AverageMeter('Loss_cls_assign', ':6.3f')
     Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
     Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
     Loss_cls_3 = AverageMeter('Loss_cls_3', ':6.3f')
@@ -61,9 +62,10 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
     Acc3 = AverageMeter('Acc3@1', ':6.2f')
     Acc_mean = AverageMeter('Acc_mean@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    Acc_ens_oracle = AverageMeter('Acc_ens_oracle@1', ':6.2f')
     progress = ProgressMeter(
         len(cifar100_training_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_mean, Acc_ens], prefix="Epoch: [{}]".format(epoch))
+        [Batch_time, Data_time, Train_loss, Loss_cls_assign, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_mean, Acc_ens, Acc_ens_oracle], prefix="Epoch: [{}]".format(epoch))
     end = time.time()
     logger.info(f"epoch: {epoch} LR: {optimizer.param_groups[0]['lr']}")
     for batch_index, (images, labels) in enumerate(cifar100_training_loader):
@@ -80,35 +82,49 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         ens = res1.detach().clone()
         for idx, w_idx in enumerate(w_inx):
             ens[idx] = res_aux[idx, w_idx, :]
-        w_assign(res1, res2, res3, labels)
+
+        w_gt = w_assign([res1, res2, res3], labels)
+        ens_oracle = res1.detach().clone()
+        for idx, w_idx in enumerate(w_gt):
+            ens_oracle[idx] = res_aux[idx, w_idx, :]
         naive_mean = (res1 + res2 + res3) / 3
+        loss_cls_assign = loss_function(w, w_gt)
+        loss_cls_1 = loss_function(res1, labels)
+        loss_cls_2 = loss_function(res2, labels)
+        loss_cls_3 = loss_function(res3, labels)
         loss_ensemble = loss_function(ens, labels)
-        loss = loss_ensemble
+        loss = loss_cls_assign
         loss.backward()
         optimizer.step()
 
         Train_loss.update(loss.item(), labels.size(0))
+        Loss_cls_1.update(loss_cls_1.item(), labels.size(0))
+        Loss_cls_2.update(loss_cls_2.item(), labels.size(0))
+        Loss_cls_3.update(loss_cls_3.item(), labels.size(0))
         Loss_ensemble.update(loss_ensemble.item(), labels.size(0))
+        Loss_cls_assign.update(loss_cls_assign.item(), labels.size(0))
 
         acc_1 = accuracy(res1, labels)[0]
         acc_2 = accuracy(res2, labels)[0]
         acc_3 = accuracy(res3, labels)[0]
         acc_mean = accuracy(naive_mean, labels)[0]
         acc_ens = accuracy(ens, labels)[0]
+        acc_ens_oracle = accuracy(ens_oracle, labels)[0]
         Acc1.update(acc_1[0], labels.size(0))
         Acc2.update(acc_2[0], labels.size(0))
         Acc3.update(acc_3[0], labels.size(0))
         Acc_mean.update(acc_mean[0], labels.size(0))
         Acc_ens.update(acc_ens[0], labels.size(0))
+        Acc_ens_oracle.update(acc_ens_oracle[0], labels.size(0))
 
         n_iter = (epoch - 1) * len(cifar100_training_loader) + batch_index + 1
 
-        last_layer = list(net.children())[-1]
-        for name, para in last_layer.named_parameters():
-            if 'weight' in name:
-                writer.add_scalar('LastLayerGradients/grad_norm2_weights', para.grad.norm(), n_iter)
-            if 'bias' in name:
-                writer.add_scalar('LastLayerGradients/grad_norm2_bias', para.grad.norm(), n_iter)
+        # last_layer = list(net.children())[-1]
+        # for name, para in last_layer.named_parameters():
+        #     if 'weight' in name:
+        #         writer.add_scalar('LastLayerGradients/grad_norm2_weights', para.grad.norm(), n_iter)
+        #     if 'bias' in name:
+        #         writer.add_scalar('LastLayerGradients/grad_norm2_bias', para.grad.norm(), n_iter)
 
         #update training loss for each iteration
         writer.add_scalar('Train/loss', loss.item(), n_iter)
@@ -120,10 +136,10 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         if epoch <= args.warm:
             warmup_scheduler.step()
 
-    for name, param in net.named_parameters():
-        layer, attr = os.path.splitext(name)
-        attr = attr[1:]
-        writer.add_histogram("{}/{}".format(layer, attr), param, epoch)
+    # for name, param in net.named_parameters():
+    #     layer, attr = os.path.splitext(name)
+    #     attr = attr[1:]
+    #     writer.add_histogram("{}/{}".format(layer, attr), param, epoch)
 
     finish = time.time()
 
@@ -136,27 +152,31 @@ def eval_training(epoch=0, tb=True, output_num=3):
     Batch_time = AverageMeter('batch_time', ':6.3f')
     Data_time = AverageMeter('Data time', ':6.3f')
     Test_loss = AverageMeter('Train_loss', ':6.3f')
+    Loss_cls_assign = AverageMeter('Loss_cls_assign', ':6.3f')
     Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
     Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
     Loss_cls_3 = AverageMeter('Loss_cls_3', ':6.3f')
     Loss_ensemble = AverageMeter('Loss_ensemble', ':6.3f')
     Loss_dis = AverageMeter('Loss_dis', ':6.3f')
+    AccW = AverageMeter('AccW@1', ':6.2f')
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
     Acc3 = AverageMeter('Acc3@1', ':6.2f')
     Acc_mean = AverageMeter('Acc_mean@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    Acc_ens_oracle = AverageMeter('Acc_ens_oracle@1', ':6.2f')
     t5_Acc1 = AverageMeter('t5_Acc1@1', ':6.2f')
     t5_Acc2 = AverageMeter('t5_Acc2@1', ':6.2f')
     t5_Acc3 = AverageMeter('t5_Acc3@1', ':6.2f')
     t5_Acc_mean = AverageMeter('t5_Acc_mean@1', ':6.2f')
     t5_Acc_ens = AverageMeter('t5_Acc_ens@1', ':6.2f')
+    t5_Acc_ens_oracle = AverageMeter('t5_Acc_ens_oracle@1', ':6.2f')
     progress = ProgressMeter(
         len(cifar100_test_loader),
-        [Batch_time, Data_time, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_mean, Acc_ens, t5_Acc1, t5_Acc2, t5_Acc3, t5_Acc_mean, t5_Acc_ens], prefix="Test Epoch: [{}]".format(epoch))
+        [Batch_time, Data_time, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, AccW, Acc1, Acc2, Acc3, Acc_mean, Acc_ens, Acc_ens_oracle, t5_Acc1, t5_Acc2, t5_Acc3, t5_Acc_mean, t5_Acc_ens, t5_Acc_ens_oracle], prefix="Test Epoch: [{}]".format(epoch))
     end = time.time()
     import numpy as np
-    all_res_1, all_res_2, all_res_3, all_res_ens, label_all = [], [], [], [], []
+    all_res_1, all_res_2, all_res_3, all_res_ens, all_res_ens_oracle, label_all = [], [], [], [], [], []
 
     for (images, labels) in cifar100_test_loader:
         Data_time.update(time.time() - end)
@@ -164,58 +184,73 @@ def eval_training(epoch=0, tb=True, output_num=3):
         images = images.cuda()
         labels = labels.cuda()
 
-        res1, res2, res3, ens = net.forward_cls_cls(images)
+        res1, res2, res3, w = net.forward_cls_cls(images)
+        _, w_inx = w.topk(1, 1, True, True)
+        res_aux = torch.stack((res1, res2, res3), dim=1)
+        ens = res1.detach().clone()
+        for idx, w_idx in enumerate(w_inx):
+            ens[idx] = res_aux[idx, w_idx, :]
+
+        w_gt = w_assign([res1, res2, res3], labels)
+        ens_oracle = res1.detach().clone()
+        for idx, w_idx in enumerate(w_gt):
+            ens_oracle[idx] = res_aux[idx, w_idx, :]
         naive_mean = (res1 + res2 + res3) / 3
 
         all_res_1.append(res1)
         all_res_2.append(res2)
         all_res_3.append(res3)
         all_res_ens.append(ens)
+        all_res_ens_oracle.append(ens_oracle)
         label_all.append(labels)
         loss_cls_1 = loss_function(res1, labels)
         loss_cls_2 = loss_function(res2, labels)
         loss_cls_3 = loss_function(res3, labels)
         loss_ensemble = loss_function(ens, labels)
+        loss_cls_assign = loss_function(w, w_gt)
         loss_dis = (dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1))) / 3
-        loss = - loss_dis * args.aux_dis_lambda
-        if args.loss_aux_single:
-            loss += (loss_cls_1 + loss_cls_2 + loss_cls_3) / 3
-        if args.loss_aux_ensemble:
-            loss += loss_ensemble
+        loss = loss_cls_assign
         Test_loss.update(loss.item(), labels.size(0))
         Loss_cls_1.update(loss_cls_1.item(), labels.size(0))
         Loss_cls_2.update(loss_cls_2.item(), labels.size(0))
         Loss_cls_3.update(loss_cls_3.item(), labels.size(0))
         Loss_ensemble.update(loss_ensemble.item(), labels.size(0))
+        Loss_cls_assign.update(loss_cls_assign.item(), labels.size(0))
         Loss_dis.update(loss_dis.item(), labels.size(0))
 
         acc_1, t5_acc_1 = accuracy(res1, labels, topk=(1, 5))
         acc_2, t5_acc_2 = accuracy(res2, labels, topk=(1, 5))
         acc_3, t5_acc_3 = accuracy(res3, labels, topk=(1, 5))
+        acc_w = accuracy(w, w_gt, topk=(1, ))
         acc_mean, t5_acc_mean = accuracy(naive_mean, labels, topk=(1, 5))
-
         acc_ens, t5_acc_ens = accuracy(ens, labels, topk=(1, 5))
+        acc_ens_oracle, t5_acc_ens_oracle = accuracy(ens_oracle, labels, topk=(1, 5))
+
         Acc1.update(acc_1[0], labels.size(0))
         Acc2.update(acc_2[0], labels.size(0))
         Acc3.update(acc_3[0], labels.size(0))
         Acc_mean.update(acc_mean[0], labels.size(0))
         Acc_ens.update(acc_ens[0], labels.size(0))
+        Acc_ens_oracle.update(acc_ens_oracle[0], labels.size(0))
         t5_Acc1.update(t5_acc_1[0], labels.size(0))
         t5_Acc2.update(t5_acc_2[0], labels.size(0))
         t5_Acc3.update(t5_acc_3[0], labels.size(0))
         t5_Acc_mean.update(t5_acc_mean[0], labels.size(0))
         t5_Acc_ens.update(t5_acc_ens[0], labels.size(0))
+        t5_Acc_ens_oracle.update(t5_acc_ens_oracle[0], labels.size(0))
         Batch_time.update(time.time() - end)
     print(progress.display_avg())
     all_res_1 = torch.cat(all_res_1, dim=0)
     all_res_2 = torch.cat(all_res_2, dim=0)
     all_res_3 = torch.cat(all_res_3, dim=0)
     all_res_ens = torch.cat(all_res_ens, dim=0)
+    all_res_ens_oracle = torch.cat(all_res_ens_oracle, dim=0)
     label_all = torch.cat(label_all, dim=0)
     _, pred_1 = all_res_1.topk(1, 1, True, True)
     _, pred_2 = all_res_2.topk(1, 1, True, True)
     _, pred_3 = all_res_3.topk(1, 1, True, True)
     _, pred_ens = all_res_ens.topk(1, 1, True, True)
+    _, all_res_ens_oracle = all_res_ens_oracle.topk(1, 1, True, True)
     aux_cls_map = torch.cat((pred_1 == label_all.view(-1, 1), pred_2 == label_all.view(-1, 1), pred_3 == label_all.view(-1, 1)),dim=1)
     emsemble_miscls = torch.sum(torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 1)
 
@@ -237,6 +272,20 @@ def eval_training(epoch=0, tb=True, output_num=3):
     #     torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0][
     #     [torch.sum(aux_cls_map[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 1]][
     #     5].cpu().numpy()
+    if 1:
+        aux_cls_map = torch.cat((pred_1 == label_all.view(-1, 1), pred_2 == label_all.view(-1, 1), pred_3 == label_all.view(-1, 1)),dim=1)
+        emsemble_miscls = torch.sum(torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 1)
+
+        ensemble_0_aux_1 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 1], dim=-1) == 1)
+        ensemble_0_aux_2 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 1], dim=-1) == 2)
+        ensemble_0_aux_3 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 1], dim=-1) == 3)
+        print(f'ens_oracle shotted {emsemble_miscls}, in which {ensemble_0_aux_1} sample in aux_cls shotted 1 time, {ensemble_0_aux_2} shotted 2 time, {ensemble_0_aux_3} shotted 3 time')
+        emsemble_miscls = torch.sum(torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0)
+
+        ensemble_0_aux_1 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 1)
+        ensemble_0_aux_2 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 2)
+        ensemble_0_aux_3 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 3)
+        print(f'ens_oracle missed {emsemble_miscls}, but {ensemble_0_aux_1} sample in aux_cls shotted 1 time, {ensemble_0_aux_2} shotted 2 time, {ensemble_0_aux_3} shotted 3 time')
     return Acc_ens.avg
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -300,22 +349,41 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+
 def w_assign(outputs, target):
     """Computes the accuracy over the k top predictions for the specified values of k"""
     with torch.no_grad():
-        maxk = max(1)
         batch_size = target.size(0)
         correct_list = []
-        for i in range(outputs):
-        _, pred_1 = res1.topk(maxk, 1, True, True)
-        pred_1 = pred_1.t()
-        correct = pred_1.eq(target.view(1, -1).expand_as(pred_1))
+        pred_list = []
+        for res in outputs:
+            _, pred = res.topk(1, 1, True, True)
+            pred = pred.t()
+            correct_list.append(pred.eq(target.view(1, -1).expand_as(pred)))
+            pred_list.append(softmax(res, 1))
+        correct_list = torch.cat(correct_list, dim=0).transpose(1, 0)
+        pred_list = torch.stack(pred_list, dim=1)
+        ret = []
+        for i in range(correct_list.size(0)):
+            if torch.sum(correct_list[i]) == 1:
+                ret.append(correct_list[i].nonzero().squeeze())
+            elif torch.sum(correct_list[i]) > 1:
+                max_idx, max_pred = 0, -100
+                for j in range(3):
+                    if correct_list[i][j] == True and max_pred < pred_list[i][j][target[i]]:
+                        max_idx = j
+                        max_pred = pred_list[i][j][target[i]]
+                ret.append(target.new_tensor(max_idx))
+            else:
+                max_idx, max_pred = 0, -100
+                for j in range(3):
+                    if max_pred < pred_list[i][j][target[i]]:
+                        max_idx = j
+                        max_pred = pred_list[i][j][target[i]]
+                ret.append(target.new_tensor(max_idx))
+    ret = torch.stack(ret)
+    return ret
 
-        res = []
-        for k in topk:
-            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
     if is_best:
@@ -381,7 +449,8 @@ if __name__ == '__main__':
     dis_criterion = torch.nn.L1Loss()
 
     loss_function = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    # optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.AdamW(net.parameters(), lr=args.lr)
     train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
     warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm)
