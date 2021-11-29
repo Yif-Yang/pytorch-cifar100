@@ -164,7 +164,7 @@ class ResNet(nn.Module):
         w_all = torch.softmax(w_all, dim=-1)
         # v_all = torch.stack((v_1, v_2, v_3), dim=1)
         # ret = torch.bmm(w_all, v_all).squeeze()
-        return  cls_1, cls_2, cls_3, w_all.squeeze()
+        return cls_1, cls_2, cls_3, w_all.squeeze()
 
 def resnet18():
     """ return a ResNet 18 object

@@ -292,6 +292,7 @@ def eval_training(epoch=0, tb=True, output_num=3):
         ensemble_0_aux_3 = torch.sum(torch.sum(aux_cls_map[torch.sum(pred_ens_oracle == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 3)
         print(f'ens_oracle missed {emsemble_miscls}, but {ensemble_0_aux_1} sample in aux_cls shotted 1 time, {ensemble_0_aux_2} shotted 2 time, {ensemble_0_aux_3} shotted 3 time')
     return Acc_ens.avg
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self, name, fmt=':f'):
