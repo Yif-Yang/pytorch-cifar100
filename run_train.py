@@ -13,7 +13,7 @@ parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
 parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
 parser.add_argument('-aux_dis_lambda', type=float, default=0, help='aux_dis_lambda loss rate')
 parser.add_argument('-main_dis_lambda', type=float, default=1, help='main_dis_lambda loss rate')
-parser.add_argument('-resume', action='store_true', default=False, help='resume training')
+parser.add_argument('-resume', type=str, default=None, help='dir name')
 parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, help='loss_aux_ensemble')
 parser.add_argument('-loss_aux_single', action='store_true', default=False, help='loss_aux_ensemble')
 parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
@@ -24,6 +24,7 @@ if not os.path.exists('./work_dir'):
 exp_name = f"{args.exp_name}_{args.net}_lr{args.lr}_{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}dis-length-{args.aux_dis_lambda}{f'_seed_{args.seed}' if args.seed > 0 else ''}_run-{args.runs}"
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       "nohup python train_cls_cls.py " \
+      f"-resume{args.resume}" \
       f"-net {args.net} " \
       f"-lr {args.lr} " \
       f"{'-loss_aux_single ' if args.loss_aux_single else ''}" \
