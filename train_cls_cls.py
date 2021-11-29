@@ -57,6 +57,7 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
     Loss_cls_3 = AverageMeter('Loss_cls_3', ':6.3f')
     Loss_ensemble = AverageMeter('Loss_ensemble', ':6.3f')
     Loss_dis = AverageMeter('Loss_dis', ':6.3f')
+    AccW = AverageMeter('AccW@1', ':6.2f')
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
     Acc3 = AverageMeter('Acc3@1', ':6.2f')
@@ -65,7 +66,7 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
     Acc_ens_oracle = AverageMeter('Acc_ens_oracle@1', ':6.2f')
     progress = ProgressMeter(
         len(cifar100_training_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_assign, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_mean, Acc_ens, Acc_ens_oracle], prefix="Epoch: [{}]".format(epoch))
+        [Batch_time, Data_time, Train_loss, Loss_cls_assign, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, AccW, Acc1, Acc2, Acc3, Acc_mean, Acc_ens, Acc_ens_oracle], prefix="Epoch: [{}]".format(epoch))
     end = time.time()
     logger.info(f"epoch: {epoch} LR: {optimizer.param_groups[0]['lr']}")
     for batch_index, (images, labels) in enumerate(cifar100_training_loader):
@@ -109,7 +110,9 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         acc_3 = accuracy(res3, labels)[0]
         acc_mean = accuracy(naive_mean, labels)[0]
         acc_ens = accuracy(ens, labels)[0]
+        acc_w = accuracy(w, w_gt)[0]
         acc_ens_oracle = accuracy(ens_oracle, labels)[0]
+        AccW.update(acc_w[0], labels.size(0))
         Acc1.update(acc_1[0], labels.size(0))
         Acc2.update(acc_2[0], labels.size(0))
         Acc3.update(acc_3[0], labels.size(0))
@@ -162,6 +165,7 @@ def eval_training(epoch=0, tb=True, output_num=3):
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
     Acc3 = AverageMeter('Acc3@1', ':6.2f')
+
     Acc_mean = AverageMeter('Acc_mean@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
     Acc_ens_oracle = AverageMeter('Acc_ens_oracle@1', ':6.2f')
@@ -221,11 +225,12 @@ def eval_training(epoch=0, tb=True, output_num=3):
         acc_1, t5_acc_1 = accuracy(res1, labels, topk=(1, 5))
         acc_2, t5_acc_2 = accuracy(res2, labels, topk=(1, 5))
         acc_3, t5_acc_3 = accuracy(res3, labels, topk=(1, 5))
-        acc_w = accuracy(w, w_gt, topk=(1, ))
+        acc_w = accuracy(w, w_gt)[0]
         acc_mean, t5_acc_mean = accuracy(naive_mean, labels, topk=(1, 5))
         acc_ens, t5_acc_ens = accuracy(ens, labels, topk=(1, 5))
         acc_ens_oracle, t5_acc_ens_oracle = accuracy(ens_oracle, labels, topk=(1, 5))
 
+        AccW.update(acc_w[0], labels.size(0))
         Acc1.update(acc_1[0], labels.size(0))
         Acc2.update(acc_2[0], labels.size(0))
         Acc3.update(acc_3[0], labels.size(0))
@@ -250,7 +255,7 @@ def eval_training(epoch=0, tb=True, output_num=3):
     _, pred_2 = all_res_2.topk(1, 1, True, True)
     _, pred_3 = all_res_3.topk(1, 1, True, True)
     _, pred_ens = all_res_ens.topk(1, 1, True, True)
-    _, all_res_ens_oracle = all_res_ens_oracle.topk(1, 1, True, True)
+    _, pred_ens_oracle = all_res_ens_oracle.topk(1, 1, True, True)
     aux_cls_map = torch.cat((pred_1 == label_all.view(-1, 1), pred_2 == label_all.view(-1, 1), pred_3 == label_all.view(-1, 1)),dim=1)
     emsemble_miscls = torch.sum(torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 1)
 
@@ -274,17 +279,17 @@ def eval_training(epoch=0, tb=True, output_num=3):
     #     5].cpu().numpy()
     if 1:
         aux_cls_map = torch.cat((pred_1 == label_all.view(-1, 1), pred_2 == label_all.view(-1, 1), pred_3 == label_all.view(-1, 1)),dim=1)
-        emsemble_miscls = torch.sum(torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 1)
+        emsemble_miscls = torch.sum(torch.sum(pred_ens_oracle == label_all.view(-1, 1), dim=-1) == 1)
 
-        ensemble_0_aux_1 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 1], dim=-1) == 1)
-        ensemble_0_aux_2 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 1], dim=-1) == 2)
-        ensemble_0_aux_3 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 1], dim=-1) == 3)
+        ensemble_0_aux_1 = torch.sum(torch.sum(aux_cls_map[torch.sum(pred_ens_oracle == label_all.view(-1, 1), dim=-1) == 1], dim=-1) == 1)
+        ensemble_0_aux_2 = torch.sum(torch.sum(aux_cls_map[torch.sum(pred_ens_oracle == label_all.view(-1, 1), dim=-1) == 1], dim=-1) == 2)
+        ensemble_0_aux_3 = torch.sum(torch.sum(aux_cls_map[torch.sum(pred_ens_oracle == label_all.view(-1, 1), dim=-1) == 1], dim=-1) == 3)
         print(f'ens_oracle shotted {emsemble_miscls}, in which {ensemble_0_aux_1} sample in aux_cls shotted 1 time, {ensemble_0_aux_2} shotted 2 time, {ensemble_0_aux_3} shotted 3 time')
-        emsemble_miscls = torch.sum(torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0)
+        emsemble_miscls = torch.sum(torch.sum(pred_ens_oracle == label_all.view(-1, 1), dim=-1) == 0)
 
-        ensemble_0_aux_1 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 1)
-        ensemble_0_aux_2 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 2)
-        ensemble_0_aux_3 = torch.sum(torch.sum(all_res_ens_oracle[torch.sum(pred_ens == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 3)
+        ensemble_0_aux_1 = torch.sum(torch.sum(aux_cls_map[torch.sum(pred_ens_oracle == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 1)
+        ensemble_0_aux_2 = torch.sum(torch.sum(aux_cls_map[torch.sum(pred_ens_oracle == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 2)
+        ensemble_0_aux_3 = torch.sum(torch.sum(aux_cls_map[torch.sum(pred_ens_oracle == label_all.view(-1, 1), dim=-1) == 0], dim=-1) == 3)
         print(f'ens_oracle missed {emsemble_miscls}, but {ensemble_0_aux_1} sample in aux_cls shotted 1 time, {ensemble_0_aux_2} shotted 2 time, {ensemble_0_aux_3} shotted 3 time')
     return Acc_ens.avg
 class AverageMeter(object):
