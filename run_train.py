@@ -24,7 +24,7 @@ if not os.path.exists('./work_dir'):
 exp_name = f"{args.exp_name}_{args.net}_lr{args.lr}_{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}dis-length-{args.aux_dis_lambda}{f'_seed_{args.seed}' if args.seed > 0 else ''}_run-{args.runs}"
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       "nohup python train_cls_cls.py " \
-      f"-resume{args.resume} " \
+      f"-resume {args.resume} " \
       f"-net {args.net} " \
       f"-lr {args.lr} " \
       f"{'-loss_aux_single ' if args.loss_aux_single else ''}" \
