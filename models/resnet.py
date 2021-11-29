@@ -106,6 +106,9 @@ class ResNet(nn.Module):
         self.q_m = nn.Linear(num_classes, hdim)
         self.v_m = nn.Linear(num_classes, hdim)
 
+        self.f_fc = nn.ModuleList([nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten(1),
+                                   nn.Linear(64 * (2 ** i), hdim), nn.ReLU(inplace=True)) for i in range(4)])
+        self.f_fc_out = nn.Linear(hdim * 4, num_classes)
 
     def _make_layer(self, block, out_channels, num_blocks, stride):
         """make resnet layers(by layer i didnt mean this 'layer' was the
@@ -144,16 +147,23 @@ class ResNet(nn.Module):
 
         return ret
     def forward_cls_cls(self, x):
+        mid_feat = []
         output = self.conv1(x)
         output = self.conv2_x(output)
+        mid_feat.append(self.f_fc[0](output.detach()))
         output = self.conv3_x(output)
+        mid_feat.append(self.f_fc[1](output.detach()))
         output = self.conv4_x(output)
+        mid_feat.append(self.f_fc[2](output.detach()))
         output = self.conv5_x(output)
+        mid_feat.append(self.f_fc[3](output.detach()))
+        feat = self.f_fc_out(torch.cat(mid_feat, 1))
+
         output = self.avg_pool(output)
         output = output.view(output.size(0), -1)
         cls_1, cls_2, cls_3 = self.fc(output).detach(), self.linear_aux_1(output).detach(), self.linear_aux_2(output).detach()
-        feat = self.feat_proj(output.detach())
-        feat = self.drop(feat)
+        # feat = self.feat_proj(output.detach())
+        # feat = self.drop(feat)
         k_1, k_2, k_3 = self.k_m(cls_1), self.k_m(cls_2), self.k_m(cls_3)
         # v_1, v_2, v_3= self.v_m(cls_1), self.v_m(cls_2), self.v_m(cls_3)
         q_feat = self.q_m(feat)
