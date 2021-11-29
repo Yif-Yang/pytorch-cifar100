@@ -101,7 +101,7 @@ class ResNet(nn.Module):
 
         hdim = num_classes * 4
         self.drop = nn.Dropout()
-        self.feat_proj = nn.Linear(512 * block.expansion, num_classes)
+        self.feat_cls = nn.Linear(512 * block.expansion, num_classes)
         self.k_m = nn.Linear(num_classes, hdim)
         self.q_m = nn.Linear(num_classes, hdim)
         self.v_m = nn.Linear(num_classes, hdim)
@@ -152,19 +152,21 @@ class ResNet(nn.Module):
         output = self.avg_pool(output)
         output = output.view(output.size(0), -1)
         cls_1, cls_2, cls_3 = self.fc(output).detach(), self.linear_aux_1(output).detach(), self.linear_aux_2(output).detach()
-        feat = self.feat_proj(output.detach())
-        feat = self.drop(feat)
-        k_1, k_2, k_3 = self.k_m(cls_1), self.k_m(cls_2), self.k_m(cls_3)
-        # v_1, v_2, v_3= self.v_m(cls_1), self.v_m(cls_2), self.v_m(cls_3)
-        q_feat = self.q_m(feat)
+
+        feat_cls = self.feat_cls(output.detach())
+        # feat = self.drop(feat)
+        k_1, k_2, k_3, k_f = self.k_m(cls_1), self.k_m(cls_2), self.k_m(cls_3), self.k_m(feat_cls)
+        v_1, v_2, v_3, v_f= self.v_m(cls_1), self.v_m(cls_2), self.v_m(cls_3), self.v_m(feat_cls)
+        q_feat = self.q_m(feat_cls)
         w1 = torch.bmm(q_feat.unsqueeze(1), k_1.unsqueeze(1).transpose(2, 1))
         w2 = torch.bmm(q_feat.unsqueeze(1), k_2.unsqueeze(1).transpose(2, 1))
         w3 = torch.bmm(q_feat.unsqueeze(1), k_3.unsqueeze(1).transpose(2, 1))
-        w_all = torch.cat((w1, w2, w3), dim=-1)
+        wf = torch.bmm(q_feat.unsqueeze(1), k_f.unsqueeze(1).transpose(2, 1))
+        w_all = torch.cat((w1, w2, w3, wf), dim=-1)
         w_all = torch.softmax(w_all, dim=-1)
-        # v_all = torch.stack((v_1, v_2, v_3), dim=1)
-        # ret = torch.bmm(w_all, v_all).squeeze()
-        return cls_1, cls_2, cls_3, w_all.squeeze()
+        v_all = torch.stack((v_1, v_2, v_3, v_f), dim=1)
+        ret = torch.bmm(w_all, v_all).squeeze()
+        return cls_1, cls_2, cls_3, feat_cls, ret
 
 def resnet18():
     """ return a ResNet 18 object
