@@ -99,12 +99,12 @@ class ResNet(nn.Module):
         self.linear_aux_1 = nn.Linear(512*block.expansion, num_classes)
         self.linear_aux_2 = nn.Linear(512*block.expansion, num_classes)
 
-        hdim = num_classes * 4
+        self.hdim = num_classes * 4
         self.drop = nn.Dropout()
         self.feat_cls = nn.Linear(512 * block.expansion, num_classes)
-        self.k_m = nn.Linear(num_classes, hdim)
-        self.q_m = nn.Linear(num_classes, hdim)
-        self.v_m = nn.Linear(num_classes, hdim)
+        self.k_m = nn.Linear(num_classes, self.hdim)
+        self.q_m = nn.Linear(num_classes, self.hdim)
+        self.v_m = nn.Linear(num_classes, self.hdim)
 
 
     def _make_layer(self, block, out_channels, num_blocks, stride):
@@ -163,7 +163,7 @@ class ResNet(nn.Module):
         w3 = torch.bmm(q_feat.unsqueeze(1), k_3.unsqueeze(1).transpose(2, 1))
         wf = torch.bmm(q_feat.unsqueeze(1), k_f.unsqueeze(1).transpose(2, 1))
         w_all = torch.cat((w1, w2, w3, wf), dim=-1)
-        w_all = torch.softmax(w_all, dim=-1)
+        w_all = torch.softmax(w_all / torch.sqrt(q_feat.new_tensor(self.hdim)), dim=-1)
         v_all = torch.stack((v_1, v_2, v_3, v_f), dim=1)
         ret = torch.bmm(w_all, v_all).squeeze()
         return cls_1, cls_2, cls_3, feat_cls, ret
