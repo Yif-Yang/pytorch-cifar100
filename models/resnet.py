@@ -99,16 +99,16 @@ class ResNet(nn.Module):
         self.linear_aux_1 = nn.Linear(512*block.expansion, num_classes)
         self.linear_aux_2 = nn.Linear(512*block.expansion, num_classes)
 
-        hdim = num_classes * 4
+        self.hdim = num_classes * 4
         self.drop = nn.Dropout()
-        self.feat_proj = nn.Linear(512 * block.expansion, num_classes)
-        self.k_m = nn.Linear(num_classes, hdim)
-        self.q_m = nn.Linear(num_classes, hdim)
-        self.v_m = nn.Linear(num_classes, hdim)
+        self.feat_cls = nn.Linear(512 * block.expansion, num_classes)
+        self.k_m = nn.Linear(num_classes, self.hdim)
+        self.q_m = nn.Linear(num_classes, self.hdim)
+        self.v_m = nn.Linear(num_classes, self.hdim)
 
-        self.f_fc = nn.ModuleList([nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten(1),
-                                   nn.Linear(64 * (2 ** i), hdim), nn.ReLU(inplace=True)) for i in range(4)])
-        self.f_fc_out = nn.Linear(hdim * 4, num_classes)
+        self.f_fc = nn.ModuleList([nn.Sequential(nn.Conv2d(64 * (2 ** i), 64 * (2 ** i), kernel_size=3, padding=1), nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten(1),
+                                   nn.Linear(64 * (2 ** i), self.hdim), nn.ReLU(inplace=True)) for i in range(4)])
+        self.f_fc_out = nn.Linear(self.hdim * 4, num_classes)
 
     def _make_layer(self, block, out_channels, num_blocks, stride):
         """make resnet layers(by layer i didnt mean this 'layer' was the
@@ -171,7 +171,7 @@ class ResNet(nn.Module):
         w2 = torch.bmm(q_feat.unsqueeze(1), k_2.unsqueeze(1).transpose(2, 1))
         w3 = torch.bmm(q_feat.unsqueeze(1), k_3.unsqueeze(1).transpose(2, 1))
         w_all = torch.cat((w1, w2, w3), dim=-1)
-        w_all = torch.softmax(w_all, dim=-1)
+        w_all = torch.softmax(w_all / torch.sqrt(q_feat.new_tensor(self.hdim)), dim=-1)
         # v_all = torch.stack((v_1, v_2, v_3), dim=1)
         # ret = torch.bmm(w_all, v_all).squeeze()
         return cls_1, cls_2, cls_3, w_all.squeeze()
