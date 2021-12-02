@@ -196,7 +196,7 @@ def eval_training(epoch=0, tb=True, output_num=3):
         loss_cls_f = loss_function(feat_cls, labels)
         loss_ensemble = loss_function(ens, labels)
         loss_dis = (dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1))) / 3
-        loss = loss_ensemble
+        loss = loss_ensemble + loss_cls_f
         Test_loss.update(loss.item(), labels.size(0))
         Loss_cls_1.update(loss_cls_1.item(), labels.size(0))
         Loss_cls_2.update(loss_cls_2.item(), labels.size(0))
