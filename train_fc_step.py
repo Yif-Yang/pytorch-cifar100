@@ -374,28 +374,34 @@ if __name__ == '__main__':
         shuffle=True
     )
     dis_criterion = torch.nn.L1Loss()
-    fc_params = []
-    encoder_params = []
-    for name, para in net.named_parameters():
-        if para.requires_grad:
-            if "fc" or 'linear_aux' in name:
-                fc_params += [para]
-            else:
-                encoder_params += [para]
-    fc_params_list = [
-        {"params": fc_params, "lr": args.lr},
-    ]
-    encoder_params_list = [
-        {"params": encoder_params, "lr": args.lr},
-    ]
+
+    # fc_params = []
+    # encoder_params = []
+    # for name, para in net.named_parameters():
+    #     if para.requires_grad:
+    #         if "fc" or 'linear_aux' in name:
+    #             fc_params += [para]
+    #         else:
+    #             encoder_params += [para]
+    # fc_params_list = [
+    #     {"params": fc_params, "lr": args.lr},
+    # ]
+    # encoder_params_list = [
+    #     {"params": encoder_params, "lr": args.lr},
+    # ]
+
+    for name, param in net.named_parameters():
+        if param.requires_grad:
+            if 'linear_aux' in name or 'fc' in name:
+                print(f'close {name}')
+                param.requires_grad = False
+
     loss_function = nn.CrossEntropyLoss()
-    optimizer_fc = optim.SGD(fc_params_list, lr=args.lr, momentum=0.9, weight_decay=5e-4)
-    optimizer_encoder = optim.SGD(encoder_params_list, lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    optimizer_fc = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     #optimizer = optim.AdamW(net.parameters(), lr=args.lr)
     train_scheduler_fc = optim.lr_scheduler.MultiStepLR(optimizer_fc, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
-    train_scheduler_encoder = optim.lr_scheduler.MultiStepLR(optimizer_encoder, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
-    warmup_scheduler = WarmUpLR(optimizer_encoder, iter_per_epoch * args.warm)
+    warmup_scheduler = WarmUpLR(optimizer_fc, iter_per_epoch * args.warm)
     if args.resume:
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
@@ -438,7 +444,6 @@ if __name__ == '__main__':
     for epoch in range(args.start_epoch, settings.EPOCH + 1):
         if epoch > args.warm:
             train_scheduler_fc.step(epoch)
-            train_scheduler_encoder.step(epoch)
 
         train(epoch, aux_dis_lambda=args.aux_dis_lambda, main_dis_lambda=args.main_dis_lambda)
         acc = eval_training(epoch, output_num=3)
