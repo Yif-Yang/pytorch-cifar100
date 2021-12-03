@@ -45,7 +45,7 @@ def get_logger(file_path):
 
     return logger
 def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
-    optimizer = optimizer_fc
+    optimizer = optimizer_encoder
 
     start = time.time()
     net.train()
@@ -85,7 +85,7 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         loss_ensemble = loss_function(ens, labels)
         loss_dis = dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1)) / 3
         # loss = - loss_dis * aux_dis_lambda if epoch // 10 % 2 == 0 else 0
-        loss = - loss_dis * aux_dis_lambda
+        loss = 0
         if args.loss_aux_single:
             loss += (loss_cls_1 + loss_cls_2 + loss_cls_3) / 3
         if args.loss_aux_ensemble:
@@ -190,7 +190,8 @@ def eval_training(epoch=0, tb=True, output_num=3):
         loss_cls_3 = loss_function(res3, labels)
         loss_ensemble = loss_function(ens, labels)
         loss_dis = (dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1))) / 3
-        loss = - loss_dis * args.aux_dis_lambda
+        # loss = - loss_dis * args.aux_dis_lambda
+        loss = 0
         if args.loss_aux_single:
             loss += (loss_cls_1 + loss_cls_2 + loss_cls_3) / 3
         if args.loss_aux_ensemble:
@@ -387,11 +388,12 @@ if __name__ == '__main__':
     ]
     encoder_params_list = [
         {"params": encoder_params, "lr": args.lr},
+        {"params": fc_params, "lr": args.lr * 0},
     ]
     loss_function = nn.CrossEntropyLoss()
     optimizer_fc = optim.SGD(fc_params_list, lr=args.lr, momentum=0.9, weight_decay=5e-4)
     optimizer_encoder = optim.SGD(encoder_params_list, lr=args.lr, momentum=0.9, weight_decay=5e-4)
-    #optimizer = optim.AdamW(net.parameters(), lr=args.lr)
+    # optimizer_encoder = optim.Adam(encoder_params_list, lr=args.lr)
     train_scheduler_fc = optim.lr_scheduler.MultiStepLR(optimizer_fc, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     train_scheduler_encoder = optim.lr_scheduler.MultiStepLR(optimizer_encoder, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)

@@ -45,7 +45,12 @@ def get_logger(file_path):
 
     return logger
 def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
-    optimizer = optimizer_fc
+    if epoch // 10 % 2 == 0:
+        optimizer = optimizer_fc
+        print(f'in ep {epoch}:now use optimizer_fc')
+    else:
+        optimizer = optimizer_encoder
+        print(f'in ep {epoch}:now use optimizer_encoder')
 
     start = time.time()
     net.train()
@@ -84,8 +89,7 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         loss_cls_3 = loss_function(res3, labels)
         loss_ensemble = loss_function(ens, labels)
         loss_dis = dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1)) / 3
-        # loss = - loss_dis * aux_dis_lambda if epoch // 10 % 2 == 0 else 0
-        loss = - loss_dis * aux_dis_lambda
+        loss = - loss_dis * aux_dis_lambda if epoch // 10 % 2 == 0 else 0
         if args.loss_aux_single:
             loss += (loss_cls_1 + loss_cls_2 + loss_cls_3) / 3
         if args.loss_aux_ensemble:
@@ -384,9 +388,11 @@ if __name__ == '__main__':
                 encoder_params += [para]
     fc_params_list = [
         {"params": fc_params, "lr": args.lr},
+        # {"params": encoder_params, "lr": args.lr},
     ]
     encoder_params_list = [
-        {"params": encoder_params, "lr": args.lr},
+        {"params": fc_params, "lr": args.lr},
+        # {"params": encoder_params, "lr": args.lr},
     ]
     loss_function = nn.CrossEntropyLoss()
     optimizer_fc = optim.SGD(fc_params_list, lr=args.lr, momentum=0.9, weight_decay=5e-4)
@@ -452,7 +458,7 @@ if __name__ == '__main__':
                 'state_dict': net.state_dict(),
                 # 'optimizer' : optimizer.state_dict(),
             }, is_best=True, filename=checkpoint_path+'checkpoint_{:04d}.pth.tar'.format(epoch))
-        elif epoch % 10 == 0:
+        elif epoch % 20 == 0:
                 save_checkpoint({
                     'epoch': epoch,
                     'arch': args.net,
