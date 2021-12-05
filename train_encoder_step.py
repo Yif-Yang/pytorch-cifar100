@@ -379,21 +379,22 @@ if __name__ == '__main__':
     encoder_params = []
     for name, para in net.named_parameters():
         if para.requires_grad:
-            if "fc" or 'linear_aux' in name:
+            if "fc" in name or 'linear_aux' in name:
                 fc_params += [para]
             else:
                 encoder_params += [para]
     fc_params_list = [
         {"params": fc_params, "lr": args.lr},
+        # {"params": encoder_params, "lr": args.lr},
     ]
     encoder_params_list = [
+        # {"params": fc_params, "lr": args.lr},
         {"params": encoder_params, "lr": args.lr},
-        {"params": fc_params, "lr": args.lr * 0},
     ]
     loss_function = nn.CrossEntropyLoss()
     optimizer_fc = optim.SGD(fc_params_list, lr=args.lr, momentum=0.9, weight_decay=5e-4)
     optimizer_encoder = optim.SGD(encoder_params_list, lr=args.lr, momentum=0.9, weight_decay=5e-4)
-    # optimizer_encoder = optim.Adam(encoder_params_list, lr=args.lr)
+    #optimizer = optim.AdamW(net.parameters(), lr=args.lr)
     train_scheduler_fc = optim.lr_scheduler.MultiStepLR(optimizer_fc, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     train_scheduler_encoder = optim.lr_scheduler.MultiStepLR(optimizer_encoder, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)

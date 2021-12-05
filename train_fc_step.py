@@ -84,8 +84,7 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         loss_cls_3 = loss_function(res3, labels)
         loss_ensemble = loss_function(ens, labels)
         loss_dis = dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1)) / 3
-        # loss = - loss_dis * aux_dis_lambda if epoch // 10 % 2 == 0 else 0
-        loss = - loss_dis * aux_dis_lambda
+        loss = - loss_dis * aux_dis_lambda if epoch // 10 % 2 == 0 else 0
         if args.loss_aux_single:
             loss += (loss_cls_1 + loss_cls_2 + loss_cls_3) / 3
         if args.loss_aux_ensemble:
@@ -320,7 +319,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-net', type=str, required=True, help='net type')
-    parser.add_argument('-work_dir', type=str, default='./work_dir/debug_fc_head', help='dir name')
+    parser.add_argument('-work_dir', type=str, default='./work_dir/debug_embedding_head', help='dir name')
     parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_australiav100data/output/ensemble/cifar100', help='dir name')
     parser.add_argument('--gpu', default=0, type=int,
                         help='GPU id to use.')
@@ -374,34 +373,36 @@ if __name__ == '__main__':
         shuffle=True
     )
     dis_criterion = torch.nn.L1Loss()
+    fc_params = []
+    encoder_params = []
+    for name, para in net.named_parameters():
+        if para.requires_grad:
+            if "fc" in name or 'linear_aux' in name:
+                fc_params += [para]
+            else:
+                encoder_params += [para]
+    fc_params_list = [
+        {"params": fc_params, "lr": args.lr},
+        # {"params": encoder_params, "lr": args.lr},
+    ]
+    encoder_params_list = [
+        # {"params": fc_params, "lr": args.lr},
+        {"params": encoder_params, "lr": args.lr},
+    ]
 
-    # fc_params = []
-    # encoder_params = []
-    # for name, para in net.named_parameters():
-    #     if para.requires_grad:
-    #         if "fc" or 'linear_aux' in name:
-    #             fc_params += [para]
-    #         else:
-    #             encoder_params += [para]
-    # fc_params_list = [
-    #     {"params": fc_params, "lr": args.lr},
-    # ]
-    # encoder_params_list = [
-    #     {"params": encoder_params, "lr": args.lr},
-    # ]
-
-    for name, param in net.named_parameters():
-        if param.requires_grad:
-            if 'linear_aux' in name or 'fc' in name:
-                print(f'close {name}')
-                param.requires_grad = False
-
+    # for name, param in net.named_parameters():
+    #     if param.requires_grad:
+    #         if 'linear_aux' in name or 'fc' in name:
+    #             print(f'close {name}')
+    #             param.requires_grad = False
     loss_function = nn.CrossEntropyLoss()
-    optimizer_fc = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    optimizer_fc = optim.SGD(fc_params_list, lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    optimizer_encoder = optim.SGD(encoder_params_list, lr=args.lr, momentum=0.9, weight_decay=5e-4)
     #optimizer = optim.AdamW(net.parameters(), lr=args.lr)
     train_scheduler_fc = optim.lr_scheduler.MultiStepLR(optimizer_fc, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
+    train_scheduler_encoder = optim.lr_scheduler.MultiStepLR(optimizer_encoder, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
-    warmup_scheduler = WarmUpLR(optimizer_fc, iter_per_epoch * args.warm)
+    warmup_scheduler = WarmUpLR(optimizer_encoder, iter_per_epoch * args.warm)
     if args.resume:
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
@@ -444,6 +445,7 @@ if __name__ == '__main__':
     for epoch in range(args.start_epoch, settings.EPOCH + 1):
         if epoch > args.warm:
             train_scheduler_fc.step(epoch)
+            train_scheduler_encoder.step(epoch)
 
         train(epoch, aux_dis_lambda=args.aux_dis_lambda, main_dis_lambda=args.main_dis_lambda)
         acc = eval_training(epoch, output_num=3)
