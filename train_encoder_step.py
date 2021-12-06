@@ -335,6 +335,7 @@ if __name__ == '__main__':
     parser.add_argument('-resume', type=str, default=None, help='dir name')
     parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, help='loss_aux_ensemble')
     parser.add_argument('-loss_aux_single', action='store_true', default=False, help='loss_aux_ensemble')
+    parser.add_argument('-close_fc_grad', action='store_true', default=False, help='close_fc_grad')
     parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
 
     args = parser.parse_args()
@@ -391,11 +392,12 @@ if __name__ == '__main__':
     #     # {"params": fc_params, "lr": args.lr},
     #     {"params": encoder_params, "lr": args.lr},
     # ]
-    for name, param in net.named_parameters():
-        if param.requires_grad:
-            if 'linear_aux' in name or 'fc' in name:
-                print(f'close {name}')
-                param.requires_grad = False
+    if args.close_fc_grad:
+        for name, param in net.named_parameters():
+            if param.requires_grad:
+                if 'linear_aux' in name or 'fc' in name:
+                    print(f'close {name}')
+                    param.requires_grad = False
 
     loss_function = nn.CrossEntropyLoss()
     # optimizer_fc = optim.SGD(fc_params_list, lr=args.lr, momentum=0.9, weight_decay=5e-4)
