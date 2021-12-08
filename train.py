@@ -27,6 +27,7 @@ from utils import get_network, get_training_dataloader, get_test_dataloader, War
     most_recent_folder, most_recent_weights, last_epoch, best_acc_weights
 from torch.nn.functional import softmax
 import logging
+from torch.nn import functional as F
 
 def get_logger(file_path):
     """ Make python logger """
@@ -54,15 +55,18 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
     Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
     Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
     Loss_cls_3 = AverageMeter('Loss_cls_3', ':6.3f')
+    Loss_cls_new = AverageMeter('Loss_cls_new', ':6.3f')
+    Distill_loss = AverageMeter('Loss_distill', ':6.3f')
     Loss_ensemble = AverageMeter('Loss_ensemble', ':6.3f')
     Loss_dis = AverageMeter('Loss_dis', ':6.3f')
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
     Acc3 = AverageMeter('Acc3@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    Acc_new = AverageMeter('Acc_new@1', ':6.2f')
     progress = ProgressMeter(
-        len(cifar100_training_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_ens], prefix="Epoch: [{}]".format(epoch))
+            len(cifar100_training_loader),
+            [Batch_time, Data_time, Train_loss, Loss_cls_new, Distill_loss, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_ens, Acc_new], prefix="Epoch: [{}]".format(epoch))
     end = time.time()
     logger.info(f"epoch: {epoch} LR: {optimizer.param_groups[0]['lr']}")
     for batch_index, (images, labels) in enumerate(cifar100_training_loader):
@@ -73,21 +77,22 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
 
         optimizer.zero_grad()
         outputs = net(images)
-        res1, res2, res3 = outputs
-        ens = 0
-        for k in outputs:
-            ens += k
-        ens /= len(outputs)
+        res1, res2, res3, new_fc_ret = outputs
+        ens = (res1 + res2 + res3) / 3
         loss_cls_1 = loss_function(res1, labels)
         loss_cls_2 = loss_function(res2, labels)
         loss_cls_3 = loss_function(res3, labels)
+        loss_cls_new = loss_function(new_fc_ret, labels)
+        T = 1
+        distill_loss = F.kl_div(
+            F.log_softmax(new_fc_ret / T, dim=1),
+            F.log_softmax(ens / T, dim=1),
+            reduction='sum',
+            log_target=True
+        ) * (T * T) / new_fc_ret.numel()
         loss_ensemble = loss_function(ens, labels)
         loss_dis = dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1)) / 3
-        loss = - loss_dis * aux_dis_lambda
-        if args.loss_aux_single:
-            loss += (loss_cls_1 + loss_cls_2 + loss_cls_3) / 3
-        if args.loss_aux_ensemble:
-            loss += loss_ensemble
+        loss = loss_cls_new + distill_loss
         loss.backward()
         optimizer.step()
 
@@ -95,16 +100,20 @@ def train(epoch, aux_dis_lambda=1, main_dis_lambda=1):
         Loss_cls_1.update(loss_cls_1.item(), labels.size(0))
         Loss_cls_2.update(loss_cls_2.item(), labels.size(0))
         Loss_cls_3.update(loss_cls_3.item(), labels.size(0))
+        Loss_cls_new.update(loss_cls_new.item(), labels.size(0))
+        Distill_loss.update(distill_loss.item(), labels.size(0))
         Loss_ensemble.update(loss_ensemble.item(), labels.size(0))
         Loss_dis.update(loss_dis.item(), labels.size(0))
 
         acc_1 = accuracy(res1, labels)[0]
         acc_2 = accuracy(res2, labels)[0]
         acc_3 = accuracy(res3, labels)[0]
+        acc_new = accuracy(new_fc_ret, labels)[0]
         acc_ens = accuracy(ens, labels)[0]
         Acc1.update(acc_1[0], labels.size(0))
         Acc2.update(acc_2[0], labels.size(0))
         Acc3.update(acc_3[0], labels.size(0))
+        Acc_new.update(acc_new[0], labels.size(0))
         Acc_ens.update(acc_ens[0], labels.size(0))
 
         n_iter = (epoch - 1) * len(cifar100_training_loader) + batch_index + 1
@@ -150,15 +159,18 @@ def eval_training(epoch=0, tb=True, output_num=3):
     Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
     Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
     Loss_cls_3 = AverageMeter('Loss_cls_3', ':6.3f')
+    Loss_cls_new = AverageMeter('Loss_cls_new', ':6.3f')
+    Distill_loss = AverageMeter('Loss_distill', ':6.3f')
     Loss_ensemble = AverageMeter('Loss_ensemble', ':6.3f')
     Loss_dis = AverageMeter('Loss_dis', ':6.3f')
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
     Acc3 = AverageMeter('Acc3@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    Acc_new = AverageMeter('Acc_new@1', ':6.2f')
     progress = ProgressMeter(
         len(cifar100_training_loader),
-        [Batch_time, Data_time, Test_loss, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_ens], prefix="Test Epoch: [{}]".format(epoch))
+        [Batch_time, Data_time, Test_loss, Loss_cls_new, Distill_loss, Loss_cls_1, Loss_cls_2, Loss_cls_3, Loss_dis, Acc1, Acc2, Acc3, Acc_ens, Acc_new], prefix="Test Epoch: [{}]".format(epoch))
     end = time.time()
     for (images, labels) in cifar100_test_loader:
         Data_time.update(time.time() - end)
@@ -167,7 +179,7 @@ def eval_training(epoch=0, tb=True, output_num=3):
         labels = labels.cuda()
 
         outputs = net(images)
-        res1, res2, res3 = outputs
+        res1, res2, res3, new_fc_ret = outputs
         ens = 0
         for k in outputs:
             ens += k
@@ -175,9 +187,17 @@ def eval_training(epoch=0, tb=True, output_num=3):
         loss_cls_1 = loss_function(res1, labels)
         loss_cls_2 = loss_function(res2, labels)
         loss_cls_3 = loss_function(res3, labels)
+        loss_cls_new = loss_function(new_fc_ret, labels)
+        T = 1
+        distill_loss = F.kl_div(
+            F.log_softmax(new_fc_ret / T, dim=1),
+            F.log_softmax(ens / T, dim=1),
+            reduction='sum',
+            log_target=True
+        ) * (T * T) / new_fc_ret.numel()
         loss_ensemble = loss_function(ens, labels)
         loss_dis = (dis_criterion(softmax(res1, 1), softmax(res2, 1)) + dis_criterion(softmax(res1, 1), softmax(res3, 1)) + dis_criterion(softmax(res2, 1), softmax(res3, 1))) / 3
-        loss = - loss_dis * args.aux_dis_lambda
+        loss = loss_cls_new + distill_loss
         if args.loss_aux_single:
             loss += (loss_cls_1 + loss_cls_2 + loss_cls_3) / 3
         if args.loss_aux_ensemble:
@@ -186,21 +206,25 @@ def eval_training(epoch=0, tb=True, output_num=3):
         Loss_cls_1.update(loss_cls_1.item(), labels.size(0))
         Loss_cls_2.update(loss_cls_2.item(), labels.size(0))
         Loss_cls_3.update(loss_cls_3.item(), labels.size(0))
+        Loss_cls_new.update(loss_cls_new.item(), labels.size(0))
+        Distill_loss.update(distill_loss.item(), labels.size(0))
         Loss_ensemble.update(loss_ensemble.item(), labels.size(0))
         Loss_dis.update(loss_dis.item(), labels.size(0))
 
         acc_1 = accuracy(res1, labels)[0]
         acc_2 = accuracy(res2, labels)[0]
         acc_3 = accuracy(res3, labels)[0]
+        acc_new = accuracy(new_fc_ret, labels)[0]
         acc_ens = accuracy(ens, labels)[0]
         Acc1.update(acc_1[0], labels.size(0))
         Acc2.update(acc_2[0], labels.size(0))
         Acc3.update(acc_3[0], labels.size(0))
         Acc_ens.update(acc_ens[0], labels.size(0))
+        Acc_new.update(acc_new[0], labels.size(0))
         Batch_time.update(time.time() - end)
     logger.info(progress.display_avg())
 
-    return Acc_ens.avg
+    return Acc_new.avg
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self, name, fmt=':f'):

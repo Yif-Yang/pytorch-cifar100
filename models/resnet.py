@@ -98,6 +98,8 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.linear_aux_1 = nn.Linear(512*block.expansion, num_classes)
         self.linear_aux_2 = nn.Linear(512*block.expansion, num_classes)
+        self.new_fc = nn.Linear(512 * block.expansion, num_classes)
+
     def _make_layer(self, block, out_channels, num_blocks, stride):
         """make resnet layers(by layer i didnt mean this 'layer' was the
         same as a neuron netowork layer, ex. conv layer), one layer may
@@ -131,7 +133,7 @@ class ResNet(nn.Module):
         output = self.conv5_x(output)
         output = self.avg_pool(output)
         output = output.view(output.size(0), -1)
-        ret = self.fc(output), self.linear_aux_1(output), self.linear_aux_2(output)
+        ret = self.fc(output.detach()), self.linear_aux_1(output.detach()), self.linear_aux_2(output.detach()), self.new_fc(output.detach())
 
         return ret
 
