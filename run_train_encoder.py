@@ -15,18 +15,20 @@ parser.add_argument('-aux_dis_lambda', type=float, default=1, help='aux_dis_lamb
 parser.add_argument('-main_dis_lambda', type=float, default=1, help='main_dis_lambda loss rate')
 parser.add_argument('-resume', action='store_true', default=False, help='resume training')
 parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, help='loss_aux_ensemble')
+parser.add_argument('-close_fc_grad', action='store_true', default=False, help='close_fc_grad')
 parser.add_argument('-loss_aux_single', action='store_true', default=False, help='loss_aux_ensemble')
 parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
 
 args = parser.parse_args()
 if not os.path.exists('./work_dir'):
       os.mkdir('./work_dir')
-exp_name = f"{args.exp_name}_{args.net}_lr{args.lr}_{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}dis-length-{args.aux_dis_lambda}{f'_seed_{args.seed}' if args.seed > 0 else ''}_run-{args.runs}"
+exp_name = f"{args.exp_name}_{args.net}_lr{args.lr}_{'close-fc' if args.close_fc_grad else ''}{'ens_' if args.loss_aux_ensemble else ''}{'sing_' if args.loss_aux_single else ''}dis-length-{args.aux_dis_lambda}{f'_seed_{args.seed}' if args.seed > 0 else ''}_run-{args.runs}"
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       "nohup python train_encoder_step.py " \
       f"-net {args.net} " \
       f"-lr {args.lr} " \
       f"{'-loss_aux_single ' if args.loss_aux_single else ''}" \
+      f"{'-close_fc_grad ' if args.close_fc_grad else ''}" \
       f"{'-loss_aux_ensemble ' if args.loss_aux_ensemble else ''}" \
       f"-aux_dis_lambda={args.aux_dis_lambda} " \
       f"-work_dir={os.path.join(args.work_dir, exp_name)} " \
