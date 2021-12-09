@@ -30,6 +30,7 @@ cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       f"{'-loss_aux_single ' if args.loss_aux_single else ''}" \
       f"{'-close_fc_grad ' if args.close_fc_grad else ''}" \
       f"{'-loss_aux_ensemble ' if args.loss_aux_ensemble else ''}" \
+      f"{f'-resume {args.resume}' if args.resume else ''}" \
       f"-aux_dis_lambda={args.aux_dis_lambda} " \
       f"-work_dir={os.path.join(args.work_dir, exp_name)} " \
       f"-blob_dir={args.blob_dir} " \
