@@ -331,6 +331,7 @@ if __name__ == '__main__':
     parser.add_argument('-aux_dis_lambda', type=float, default=1, help='aux_dis_lambda loss rate')
     parser.add_argument('-main_dis_lambda', type=float, default=1, help='main_dis_lambda loss rate')
     parser.add_argument('-resume', type=str, default=None, help='dir name')
+    parser.add_argument('-open_encoder_grad', action='store_true', default=False, help='close_fc_grad')
     parser.add_argument('-loss_aux_ensemble', action='store_true', default=False, help='loss_aux_ensemble')
     parser.add_argument('-loss_aux_single', action='store_true', default=False, help='loss_aux_ensemble')
     parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
