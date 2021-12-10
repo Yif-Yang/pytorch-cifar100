@@ -27,7 +27,7 @@ from utils import get_network, get_training_dataloader, get_test_dataloader, War
     most_recent_folder, most_recent_weights, last_epoch, best_acc_weights
 from torch.nn.functional import softmax
 import logging
-
+from models.ensemble import Ens
 def get_logger(file_path):
     """ Make python logger """
     # [!] Since tensorboardX use default logger (e.g. logging.info()), we should use custom logger
@@ -244,9 +244,11 @@ if __name__ == '__main__':
         batch_size=args.b,
         shuffle=True
     )
-
+    nets = []
     for i in range(args.ens_num):
-        net = get_network(args)
+        nets.append(get_network(args))
+
+    net = Ens(nets)
 
     if not os.path.exists(args.work_dir):
         os.mkdir(args.work_dir)
@@ -256,9 +258,9 @@ if __name__ == '__main__':
     settings.LOG_DIR = os.path.join(args.work_dir, 'pb')
     #data preprocessing:
 
-
-
     loss_function = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
