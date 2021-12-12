@@ -301,6 +301,10 @@ if __name__ == '__main__':
         ("VotingClassifier", training_time, evaluating_time, testing_acc)
     )
     display_records(records, logger)
+    cp_cmd = f'cp -r {args.work_dir} {args.blob_dir}'
+    logger.info(cp_cmd)
+    os.system(cp_cmd)
+
     # optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4, nesterov=args.nesterov)
 
     # train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
@@ -360,5 +364,4 @@ if __name__ == '__main__':
     #     logger.info(f'epoch({epoch}): best acc-{best_acc:6.3f} from ep {best_ep}')
     #
     #
-    # os.system(f'cp -r {args.work_dir} {args.blob_dir}')
-    # writer.close()
+
