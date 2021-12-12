@@ -216,6 +216,7 @@ if __name__ == '__main__':
     parser.add_argument('-resume', type=str, default=None, help='dir name')
     parser.add_argument('-nesterov', action='store_true', default=False, help='resume training')
     parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
+    parser.add_argument('-n_estimators', type=int, default=3, metavar='S', help='random seed (default: 1)')
 
     args = parser.parse_args()
     if args.seed > -1:
