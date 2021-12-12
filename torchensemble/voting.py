@@ -17,7 +17,7 @@ from ._base import torchensemble_model_doc
 from .utils import io
 from .utils import set_module
 from .utils import operator as op
-
+from utils import WarmUpLR
 
 __all__ = ["VotingClassifier", "VotingRegressor"]
 
@@ -43,7 +43,9 @@ def _parallel_fit_per_epoch(
     if cur_lr:
         # Parallelization corrupts the binding between optimizer and scheduler
         set_module.update_lr(optimizer, cur_lr)
-
+    if epoch == 0:
+        iter_per_epoch = len(train_loader)
+        warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch)
     for batch_idx, elem in enumerate(train_loader):
 
         data, target = io.split_data_target(elem, device)
@@ -64,12 +66,12 @@ def _parallel_fit_per_epoch(
                 correct = (predicted == target).sum().item()
 
                 msg = (
-                    "Estimator: {:03d} | Epoch: {:03d} | Batch: {:03d}"
-                    " | Loss: {:.5f} | Correct: {:d}/{:d}"
+                    "LR {:.3f} | Estimator: {:03d} | Epoch: {:03d} | Batch: {:03d}"
+                    " | Loss: {:.5f} | Correct: {:d}/{:d} | Acc: {:.2f}"
                 )
                 print(
                     msg.format(
-                        idx, epoch, batch_idx, loss, correct, batch_size
+                        optimizer.state_dict()['param_groups'][0]['lr'], idx, epoch, batch_idx, loss, correct, batch_size, correct / batch_size * 100
                     )
                 )
             # Regression
@@ -79,7 +81,8 @@ def _parallel_fit_per_epoch(
                     " | Loss: {:.5f}"
                 )
                 print(msg.format(idx, epoch, batch_idx, loss))
-
+        if epoch == 0:
+            warmup_scheduler.step()
     return estimator, optimizer
 
 

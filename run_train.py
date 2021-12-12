@@ -1,7 +1,7 @@
 import argparse
 import os
 parser = argparse.ArgumentParser()
-parser.add_argument('-net', type=str, default='resnet18', help='net type')
+parser.add_argument('-net', type=str, default='resnet18_new', help='net type')
 parser.add_argument('-work_dir', type=str, default='./work_dir', help='dir name')
 parser.add_argument('-exp_name', type=str, default='voting', help='exp_name ')
 parser.add_argument('-runs', type=str, default='1', help='exp_name ')

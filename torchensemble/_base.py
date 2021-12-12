@@ -64,6 +64,7 @@ class BaseModule(nn.Module):
         estimator_args=None,
         cuda=True,
         n_jobs=None,
+        logger=None,
     ):
         super(BaseModule, self).__init__()
         self.base_estimator_ = estimator
@@ -79,7 +80,7 @@ class BaseModule(nn.Module):
 
         self.device = torch.device("cuda" if cuda else "cpu")
         self.n_jobs = n_jobs
-        self.logger = logging.getLogger()
+        self.logger = logging.getLogger() if not logger else logger
         self.tb_logger = get_tb_logger()
 
         self.estimators_ = nn.ModuleList()
