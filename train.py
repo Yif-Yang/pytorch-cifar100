@@ -60,9 +60,8 @@ def train(epoch):
     for batch_index, (images, labels) in enumerate(cifar100_training_loader):
         Data_time.update(time.time() - end)
 
-        if args.gpu:
-            labels = labels.cuda()
-            images = images.cuda()
+        labels = labels.cuda()
+        images = images.cuda()
 
         optimizer.zero_grad()
         outputs = net(images)
@@ -76,12 +75,12 @@ def train(epoch):
 
         n_iter = (epoch - 1) * len(cifar100_training_loader) + batch_index + 1
 
-        last_layer = list(net.children())[-1]
-        for name, para in last_layer.named_parameters():
-            if 'weight' in name:
-                writer.add_scalar('LastLayerGradients/grad_norm2_weights', para.grad.norm(), n_iter)
-            if 'bias' in name:
-                writer.add_scalar('LastLayerGradients/grad_norm2_bias', para.grad.norm(), n_iter)
+        # last_layer = list(net.children())[-1]
+        # for name, para in last_layer.named_parameters():
+        #     if 'weight' in name:
+        #         writer.add_scalar('LastLayerGradients/grad_norm2_weights', para.grad.norm(), n_iter)
+        #     if 'bias' in name:
+        #         writer.add_scalar('LastLayerGradients/grad_norm2_bias', para.grad.norm(), n_iter)
 
         #update training loss for each iteration
         writer.add_scalar('Train/loss', loss.item(), n_iter)
@@ -92,10 +91,10 @@ def train(epoch):
         if epoch <= args.warm:
             warmup_scheduler.step()
 
-    for name, param in net.named_parameters():
-        layer, attr = os.path.splitext(name)
-        attr = attr[1:]
-        writer.add_histogram("{}/{}".format(layer, attr), param, epoch)
+    # for name, param in net.named_parameters():
+    #     layer, attr = os.path.splitext(name)
+    #     attr = attr[1:]
+    #     writer.add_histogram("{}/{}".format(layer, attr), param, epoch)
 
     finish = time.time()
 
@@ -110,24 +109,25 @@ def eval_training(epoch=0, tb=True):
     Data_time = AverageMeter('Data time', ':6.3f')
     Test_loss = AverageMeter('Train_loss', ':6.3f')
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
+    Acc5 = AverageMeter('Acc5@1', ':6.2f')
     progress = ProgressMeter(
         len(cifar100_training_loader),
-        [Batch_time, Data_time, Test_loss, Acc1], prefix="Test Epoch: [{}]".format(epoch))
+        [Batch_time, Data_time, Test_loss, Acc1, Acc5], prefix="Test Epoch: [{}]".format(epoch))
     end = time.time()
     for (images, labels) in cifar100_test_loader:
         Data_time.update(time.time() - end)
 
-        if args.gpu:
-            images = images.cuda()
-            labels = labels.cuda()
+        images = images.cuda()
+        labels = labels.cuda()
 
         outputs = net(images)
         loss = loss_function(outputs, labels)
 
-        acc_1 = accuracy(outputs, labels)[0]
+        acc_1, t5_acc = accuracy(outputs, labels, topk=(1, 5))
         Test_loss.update(loss.item(), labels.size(0))
 
         Acc1.update(acc_1[0], labels.size(0))
+        Acc5.update(t5_acc[0], labels.size(0))
         Batch_time.update(time.time() - end)
     logger.info(progress.display_avg())
 
@@ -205,18 +205,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-net', type=str, required=True, help='net type')
     parser.add_argument('-work_dir', type=str, default='./work_dir', help='dir name')
-    parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_australiav100data/output/ensemble/cifar100', help='dir name')
-    parser.add_argument('-gpu', action='store_true', default=True, help='use gpu or not')
+    parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_yif_australiav100data/output/ensemble/cifar100', help='dir name')
+    parser.add_argument('-gpu', default=0, type=int,
+                        help='GPU id to use.')
     parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
     parser.add_argument('-start_epoch', type=int, default=1, help='batch size for dataloader')
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
     parser.add_argument('-print_freq', type=int, default=100, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
-    parser.add_argument('-resume', action='store_true', default=False, help='resume training')
+    parser.add_argument('-resume', type=str, default=None, help='dir name')
+    parser.add_argument('-nesterov', action='store_true', default=False, help='resume training')
     parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
 
     args = parser.parse_args()
-    if args.seed > 0:
+    if args.seed > -1:
         print(f'set seed {args.seed}')
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
@@ -229,6 +231,7 @@ if __name__ == '__main__':
         torch.backends.cudnn.benchmark = True
         print('not set seed')
     net = get_network(args)
+    net = net.cuda(args.gpu)
     if not os.path.exists(args.work_dir):
         os.mkdir(args.work_dir)
     logger = get_logger(os.path.join(args.work_dir, 'train.log'))
@@ -253,7 +256,7 @@ if __name__ == '__main__':
     )
 
     loss_function = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4, nesterov=args.nesterov)
     train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)
     warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm)
@@ -266,11 +269,13 @@ if __name__ == '__main__':
                 # Map model to be loaded to specified single gpu.
                 loc = 'cuda:{}'.format(args.gpu)
                 checkpoint = torch.load(args.resume, map_location=loc)
-            args.start_epoch = checkpoint['epoch']
-            net.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
+            # args.start_epoch = checkpoint['epoch']
+            net.load_state_dict(checkpoint['state_dict'], strict=False)
+            # optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
+            eval_training(checkpoint['epoch'], output_num=3)
+            print('-------------------- test for resumed ckpt --------------------')
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
@@ -283,8 +288,7 @@ if __name__ == '__main__':
     writer = SummaryWriter(log_dir=os.path.join(
             settings.LOG_DIR, args.net, settings.TIME_NOW))
     input_tensor = torch.Tensor(1, 3, 32, 32)
-    if args.gpu:
-        input_tensor = input_tensor.cuda()
+    input_tensor = input_tensor.cuda()
     writer.add_graph(net, input_tensor)
 
     #create checkpoint folder to save model
@@ -308,14 +312,14 @@ if __name__ == '__main__':
                 'epoch': epoch,
                 'arch': args.net,
                 'state_dict': net.state_dict(),
-                'optimizer' : optimizer.state_dict(),
+                # 'optimizer' : optimizer.state_dict(),
             }, is_best=True, filename=checkpoint_path+'checkpoint_{:04d}.pth.tar'.format(epoch))
         elif epoch % 20 == 0:
                 save_checkpoint({
                     'epoch': epoch,
                     'arch': args.net,
                     'state_dict': net.state_dict(),
-                    'optimizer': optimizer.state_dict(),
+                    # 'optimizer': optimizer.state_dict(),
                 }, is_best=False, filename=checkpoint_path + 'checkpoint_{:04d}.pth.tar'.format(epoch))
         logger.info(f'epoch({epoch}): best acc-{best_acc:6.3f} from ep {best_ep}')
 
