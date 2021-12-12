@@ -223,6 +223,7 @@ if __name__ == '__main__':
     parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
     parser.add_argument('-print_freq', type=int, default=100, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
+    parser.add_argument('-aux_dis_lambda', type=float, default=0, help='aux_dis_lambda loss rate')
     parser.add_argument('-resume', type=str, default=None, help='dir name')
     parser.add_argument('-nesterov', action='store_true', default=False, help='resume training')
     parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
@@ -288,6 +289,7 @@ if __name__ == '__main__':
         test_loader=cifar100_test_loader,
         save_model=True,
         save_dir=checkpoint_path,
+        aux_dis_lambda=args.aux_dis_lambda
         )
     toc = time.time()
     training_time = toc - tic

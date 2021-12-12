@@ -17,8 +17,8 @@ from ._base import torchensemble_model_doc
 from .utils import io
 from .utils import set_module
 from .utils import operator as op
-from utils import WarmUpLR, accuracy, AverageMeter, ProgressMeter
-import time
+from utils import WarmUpLR
+
 __all__ = ["VotingClassifier", "VotingRegressor"]
 
 
@@ -33,8 +33,6 @@ def _parallel_fit_per_epoch(
     log_interval,
     device,
     is_classification,
-    logger,
-    aux_dis_lambda
 ):
     """
     Private function used to fit base estimators in parallel.
@@ -48,66 +46,43 @@ def _parallel_fit_per_epoch(
     if epoch == 0:
         iter_per_epoch = len(train_loader)
         warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch)
-
-    Batch_time = AverageMeter('batch_time', ':6.3f')
-    Data_time = AverageMeter('Data time', ':6.3f')
-    Train_loss = AverageMeter('Train_loss', ':6.3f')
-    Loss_cls_1 = AverageMeter('Cls_loss_1', ':6.3f')
-    Loss_cls_2 = AverageMeter('Cls_loss_2', ':6.3f')
-    Loss_cls_ens = AverageMeter('Cls_loss_ens', ':6.3f')
-    Loss_dis = AverageMeter('Loss_dis', ':6.3f')
-    Acc1 = AverageMeter('Acc1@1', ':6.2f')
-    Acc2 = AverageMeter('Acc2@1', ':6.2f')
-    Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
-    progress = ProgressMeter(
-        len(train_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Acc1, Acc2, Acc_ens],
-        prefix=f"Epoch: [{epoch}] Ens:[{idx}] Lr:[{optimizer.state_dict()['param_groups'][0]['lr']:.5f}]",
-    logger = logger)
-
-    end = time.time()
     for batch_idx, elem in enumerate(train_loader):
-        Data_time.update(time.time() - end)
 
         data, target = io.split_data_target(elem, device)
-        batch_size = target.size(0)
+        batch_size = data[0].size(0)
 
         optimizer.zero_grad()
-        cls1, cls2 = estimator(*data)
-        loss_cls_1 = criterion(cls1, target)
-        loss_cls_2 = criterion(cls2, target)
-        ens = (cls1 + cls2) / 2
-        loss_cls_ens = criterion(ens, target)
-        dis_criterion = torch.nn.L1Loss()
-
-        loss_dis = dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1))
-
-        loss = (loss_cls_1 + loss_cls_2) / 2 - loss_dis * aux_dis_lambda
-
+        output = estimator(*data)
+        loss = criterion(output, target)
         loss.backward()
         optimizer.step()
 
-        Train_loss.update(loss.item(), batch_size)
-        Loss_cls_1.update(loss_cls_1.item(), batch_size)
-        Loss_cls_2.update(loss_cls_2.item(), batch_size)
-        Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
-        Loss_dis.update(loss_dis.item(), batch_size)
-
-        acc_1, t5_acc_1 = accuracy(cls1, target, topk=(1, 5))
-        acc_2, t5_acc_2 = accuracy(cls2, target, topk=(1, 5))
-        acc_ens, t5_acc_ens = accuracy(ens, target, topk=(1, 5))
-        Acc1.update(acc_1[0], batch_size)
-        Acc2.update(acc_2[0], batch_size)
-        Acc_ens.update(acc_ens[0], batch_size)
-        Batch_time.update(time.time() - end)
-        end = time.time()
         # Print training status
         if batch_idx % log_interval == 0:
-            progress.display(batch_idx)
 
+            # Classification
+            if is_classification:
+                _, predicted = torch.max(output.data, 1)
+                correct = (predicted == target).sum().item()
+
+                msg = (
+                    "LR {:.3f} | Estimator: {:03d} | Epoch: {:03d} | Batch: {:03d}"
+                    " | Loss: {:.5f} | Correct: {:d}/{:d} | Acc: {:.2f}"
+                )
+                print(
+                    msg.format(
+                        optimizer.state_dict()['param_groups'][0]['lr'], idx, epoch, batch_idx, loss, correct, batch_size, correct / batch_size * 100
+                    )
+                )
+            # Regression
+            else:
+                msg = (
+                    "Estimator: {:03d} | Epoch: {:03d} | Batch: {:03d}"
+                    " | Loss: {:.5f}"
+                )
+                print(msg.format(idx, epoch, batch_idx, loss))
         if epoch == 0:
             warmup_scheduler.step()
-
     return estimator, optimizer
 
 
@@ -160,7 +135,6 @@ class VotingClassifier(BaseClassifier):
         test_loader=None,
         save_model=True,
         save_dir=None,
-        aux_dis_lambda=0,
     ):
 
         self._validate_parameters(epochs, log_interval)
@@ -193,29 +167,13 @@ class VotingClassifier(BaseClassifier):
 
         # Internal helper function on pesudo forward
         def _forward(estimators, *x):
-            outputs = []
-            for idx, estimator in enumerate(estimators):
-
-                cls1, cls2 = estimator(*x)
-                ens = (cls1 + cls2) / 2
-                ret = F.softmax(ens, dim=1)
-                outputs.append(ret)
-
+            outputs = [
+                F.softmax(estimator(*x), dim=1) for estimator in estimators
+            ]
             proba = op.average(outputs)
 
             return proba
-        def _forward(estimators, *x):
-            outputs = []
-            for idx, estimator in enumerate(estimators):
 
-                cls1, cls2 = estimator(*x)
-                ens = (cls1 + cls2) / 2
-                ret = F.softmax(ens, dim=1)
-                outputs.append(ret)
-
-            proba = op.average(outputs)
-
-            return proba
         # Maintain a pool of workers
         with Parallel(n_jobs=self.n_jobs) as parallel:
 
@@ -244,8 +202,6 @@ class VotingClassifier(BaseClassifier):
                         log_interval,
                         self.device,
                         True,
-                        self.logger,
-                        aux_dis_lambda
                     )
                     for idx, (estimator, optimizer) in enumerate(
                         zip(estimators, optimizers)
@@ -263,7 +219,6 @@ class VotingClassifier(BaseClassifier):
                     with torch.no_grad():
                         correct = 0
                         total = 0
-
                         for _, elem in enumerate(test_loader):
                             data, target = io.split_data_target(
                                 elem, self.device
@@ -425,7 +380,6 @@ class VotingRegressor(BaseRegressor):
                         log_interval,
                         self.device,
                         False,
-                        self.logger
                     )
                     for idx, (estimator, optimizer) in enumerate(
                         zip(estimators, optimizers)
