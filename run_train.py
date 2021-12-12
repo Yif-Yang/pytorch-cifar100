@@ -3,7 +3,7 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument('-net', type=str, default='resnet18', help='net type')
 parser.add_argument('-work_dir', type=str, default='./work_dir', help='dir name')
-parser.add_argument('-exp_name', type=str, default='baseline', help='exp_name ')
+parser.add_argument('-exp_name', type=str, default='voting', help='exp_name ')
 parser.add_argument('-runs', type=str, default='1', help='exp_name ')
 parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_yif_australiav100data/output/ensemble/cifar100',
                     help='dir name')
@@ -13,7 +13,7 @@ parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
 parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
 parser.add_argument('-resume', action='store_true', default=False, help='resume training')
 parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
-parser.add_argument('-nesterov', action='store_true', default=False, help='nesterov training')
+parser.add_argument('-nesterov', action='store_false', default=True, help='nesterov training')
 parser.add_argument('-n_estimators', type=int, default=3, metavar='S', help='random seed (default: 1)')
 
 args = parser.parse_args()
