@@ -78,11 +78,15 @@ def _parallel_fit_per_epoch(
         loss_cls_2 = criterion(cls2, target)
         ens = (cls1 + cls2) / 2
         loss_cls_ens = criterion(ens, target)
-        dis_criterion = torch.nn.L1Loss()
+        dis_criterion = torch.nn.L1Loss(reduce=False)
 
-        loss_dis = dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1))
+        loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
 
-        loss = (loss_cls_1 + loss_cls_2) / 2 - loss_dis * aux_dis_lambda
+        loss = torch.mean(loss_dis.detach() / torch.mean(loss_dis.detach()) * (loss_cls_1 + loss_cls_2)) / 2 - torch.mean(loss_dis) * aux_dis_lambda
+        loss_cls_1 = torch.mean(loss_cls_1)
+        loss_cls_2 = torch.mean(loss_cls_2)
+        loss_cls_ens = torch.mean(loss_cls_ens)
+        loss_dis = torch.mean(loss_dis)
 
         loss.backward()
         optimizer.step()
@@ -121,9 +125,14 @@ class VotingClassifier(BaseClassifier):
     )
     def forward(self, *x):
         # Average over class distributions from all base estimators.
-        outputs = [
-            F.softmax(estimator(*x), dim=1) for estimator in self.estimators_
-        ]
+        outputs = []
+        for idx, estimator in enumerate(self.estimators_):
+
+            cls1, cls2 = estimator(*x)
+            ens = (cls1 + cls2) / 2
+            ret = F.softmax(ens, dim=1)
+            outputs.append(ret)
+
         proba = op.average(outputs)
 
         return proba
@@ -192,18 +201,6 @@ class VotingClassifier(BaseClassifier):
         best_acc = 0.0
 
         # Internal helper function on pesudo forward
-        def _forward(estimators, *x):
-            outputs = []
-            for idx, estimator in enumerate(estimators):
-
-                cls1, cls2 = estimator(*x)
-                ens = (cls1 + cls2) / 2
-                ret = F.softmax(ens, dim=1)
-                outputs.append(ret)
-
-            proba = op.average(outputs)
-
-            return proba
         def _forward(estimators, *x):
             outputs = []
             for idx, estimator in enumerate(estimators):
