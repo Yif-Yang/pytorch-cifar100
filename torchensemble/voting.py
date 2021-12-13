@@ -83,7 +83,7 @@ def _parallel_fit_per_epoch(
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
 
         cls_loss = (loss_cls_1 + loss_cls_2) / 2
-        loss = torch.mean(loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss) - torch.mean(
+        loss = torch.mean(cls_loss) - torch.mean(
             loss_dis * (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
                         torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach()))) * aux_dis_lambda
         loss_cls_1 = torch.mean(loss_cls_1)
