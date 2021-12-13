@@ -121,9 +121,14 @@ class VotingClassifier(BaseClassifier):
     )
     def forward(self, *x):
         # Average over class distributions from all base estimators.
-        outputs = [
-            F.softmax(estimator(*x), dim=1) for estimator in self.estimators_
-        ]
+        outputs = []
+        for idx, estimator in enumerate(self.estimators_):
+
+            cls1, cls2 = estimator(*x)
+            ens = (cls1 + cls2) / 2
+            ret = F.softmax(ens, dim=1)
+            outputs.append(ret)
+
         proba = op.average(outputs)
 
         return proba
@@ -192,18 +197,6 @@ class VotingClassifier(BaseClassifier):
         best_acc = 0.0
 
         # Internal helper function on pesudo forward
-        def _forward(estimators, *x):
-            outputs = []
-            for idx, estimator in enumerate(estimators):
-
-                cls1, cls2 = estimator(*x)
-                ens = (cls1 + cls2) / 2
-                ret = F.softmax(ens, dim=1)
-                outputs.append(ret)
-
-            proba = op.average(outputs)
-
-            return proba
         def _forward(estimators, *x):
             outputs = []
             for idx, estimator in enumerate(estimators):
