@@ -238,24 +238,38 @@ class VotingClassifier(BaseClassifier):
                     msg = "Parallelization on the training epoch: {:03d}"
                     self.logger.info(msg.format(epoch))
 
-                rets = parallel(
-                    delayed(_parallel_fit_per_epoch)(
-                        train_loader,
-                        estimator,
-                        cur_lr,
-                        optimizer,
-                        self._criterion,
-                        idx,
-                        epoch,
-                        log_interval,
-                        self.device,
-                        True,
-                        self.logger,
-                        aux_dis_lambda
-                    )
-                    for idx, (estimator, optimizer) in enumerate(
-                        zip(estimators, optimizers)
-                    )
+                # rets = parallel(
+                #     delayed(_parallel_fit_per_epoch)(
+                #         train_loader,
+                #         estimator,
+                #         cur_lr,
+                #         optimizer,
+                #         self._criterion,
+                #         idx,
+                #         epoch,
+                #         log_interval,
+                #         self.device,
+                #         True,
+                #         self.logger,
+                #         aux_dis_lambda
+                #     )
+                #     for idx, (estimator, optimizer) in enumerate(
+                #         zip(estimators, optimizers)
+                #     )
+                # )
+                delayed(_parallel_fit_per_epoch)(
+                    train_loader,
+                    estimators,
+                    cur_lr,
+                    optimizers,
+                    self._criterion,
+                    idx,
+                    epoch,
+                    log_interval,
+                    self.device,
+                    True,
+                    self.logger,
+                    aux_dis_lambda
                 )
 
                 estimators, optimizers = [], []
