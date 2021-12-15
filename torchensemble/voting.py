@@ -73,11 +73,20 @@ def _parallel_fit_per_epoch(
         batch_size = target.size(0)
 
         optimizer.zero_grad()
-        cls1, cls2 = estimator(*data)
+        cls1, cls2, cls_cls = estimator(*data)
+        ens = (cls1 + cls2) / 2
+
+        acc_1, correct_1 = accuracy(cls1, target)
+        acc_2, correct_2 = accuracy(cls2, target)
+        acc_ens, correct_ens = accuracy(ens, target)
+
+        correct_sum = torch.sum(torch.stack((correct_1[0], correct_2[0]), dim=-1), dim=-1)
+        acc_cls, correct_cls = accuracy(cls_cls, correct_sum)
+
         loss_cls_1 = criterion(cls1, target)
         loss_cls_2 = criterion(cls2, target)
-        ens = (cls1 + cls2) / 2
-        loss_cls_ens = criterion(ens, target)
+        loss_cls_ens = criterion(cls_cls, correct_sum)
+        loss_cls_cls = criterion(ens, target)
         dis_criterion = torch.nn.L1Loss(reduce=False)
 
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
@@ -100,9 +109,6 @@ def _parallel_fit_per_epoch(
         Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
         Loss_dis.update(loss_dis.item(), batch_size)
 
-        acc_1, t5_acc_1 = accuracy(cls1, target, topk=(1, 5))
-        acc_2, t5_acc_2 = accuracy(cls2, target, topk=(1, 5))
-        acc_ens, t5_acc_ens = accuracy(ens, target, topk=(1, 5))
         Acc1.update(acc_1[0], batch_size)
         Acc2.update(acc_2[0], batch_size)
         Acc_ens.update(acc_ens[0], batch_size)
