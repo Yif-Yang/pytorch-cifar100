@@ -61,9 +61,11 @@ def _parallel_fit_per_epoch(
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
     Acc_cls = AverageMeter('Acc_cls@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    Acc_ens_sf = AverageMeter('Acc_ens_sf@1', ':6.2f')
+
     progress = ProgressMeter(
         len(train_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_cls_cls, Loss_dis, Acc1, Acc2, Acc_cls, Acc_ens],
+        [Batch_time, Data_time, Train_loss, Loss_cls_cls, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Acc_cls, Acc1, Acc2, Acc_ens, Acc_ens_sf],
         prefix=f"Epoch: [{epoch}] Ens:[{idx}] Lr:[{optimizer.state_dict()['param_groups'][0]['lr']:.5f}]",
     logger = logger)
 
@@ -77,18 +79,20 @@ def _parallel_fit_per_epoch(
         optimizer.zero_grad()
         cls1, cls2, cls_cls = estimator(*data)
         ens = (cls1 + cls2) / 2
+        ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
 
         acc_1, correct_1 = accuracy(cls1, target)
         acc_2, correct_2 = accuracy(cls2, target)
         acc_ens, correct_ens = accuracy(ens, target)
+        acc_ens_sf, correct_ens_sf = accuracy(ens_sf, target)
 
         correct_sum = torch.sum(torch.stack((correct_1[0], correct_2[0]), dim=-1), dim=-1)
         acc_cls, correct_cls = accuracy(cls_cls, correct_sum)
 
         loss_cls_1 = criterion(cls1, target)
         loss_cls_2 = criterion(cls2, target)
-        loss_cls_cls = criterion(cls_cls, target)
-        loss_cls_ens = criterion(ens, correct_sum)
+        loss_cls_cls = criterion(ens, target)
+        loss_cls_ens = criterion(cls_cls, correct_sum)
         dis_criterion = torch.nn.L1Loss(reduce=False)
 
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
@@ -97,6 +101,7 @@ def _parallel_fit_per_epoch(
         loss = torch.mean(loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss) - torch.mean(
             loss_dis * (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
                         torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach()))) * aux_dis_lambda
+        loss_cls_cls = torch.mean(loss_cls_cls)
         loss += loss_cls_cls
         loss_cls_1 = torch.mean(loss_cls_1)
         loss_cls_2 = torch.mean(loss_cls_2)
@@ -113,10 +118,12 @@ def _parallel_fit_per_epoch(
         Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
         Loss_dis.update(loss_dis.item(), batch_size)
 
-        Acc1.update(acc_1[0], batch_size)
-        Acc2.update(acc_2[0], batch_size)
-        Acc_cls.update(acc_cls[0], batch_size)
-        Acc_ens.update(acc_ens[0], batch_size)
+        Acc1.update(acc_1[0].item(), batch_size)
+        Acc2.update(acc_2[0].item(), batch_size)
+        Acc_cls.update(acc_cls[0].item(), batch_size)
+        Acc_ens.update(acc_ens[0].item(), batch_size)
+        Acc_ens_sf.update(acc_ens_sf[0].item(), batch_size)
+
         Batch_time.update(time.time() - end)
         end = time.time()
         # Print training status
@@ -128,6 +135,96 @@ def _parallel_fit_per_epoch(
 
     return estimator, optimizer
 
+def _parallel_test_per_epoch(
+    train_loader,
+    estimator,
+    criterion,
+    idx,
+    epoch,
+    device,
+    logger,
+    aux_dis_lambda
+):
+    """
+    Private function used to fit base estimators in parallel.
+
+    WARNING: Parallelization when fitting large base estimators may cause
+    out-of-memory error.
+    """
+
+    Batch_time = AverageMeter('batch_time', ':6.3f')
+    Data_time = AverageMeter('Data time', ':6.3f')
+    Train_loss = AverageMeter('Train_loss', ':6.3f')
+    Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
+    Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
+    Loss_cls_cls = AverageMeter('Loss_cls_cls', ':6.3f')
+    Loss_cls_ens = AverageMeter('Loss_cls_ens', ':6.3f')
+    Loss_dis = AverageMeter('Loss_dis', ':6.3f')
+    Acc1 = AverageMeter('Acc1@1', ':6.2f')
+    Acc2 = AverageMeter('Acc2@1', ':6.2f')
+    Acc_cls = AverageMeter('Acc_cls@1', ':6.2f')
+    Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    Acc_ens_sf = AverageMeter('Acc_ens_sf@1', ':6.2f')
+    progress = ProgressMeter(
+        len(train_loader),
+        [Batch_time, Data_time, Train_loss, Loss_cls_cls, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Acc_cls, Acc1, Acc2, Acc_ens, Acc_ens_sf],
+        prefix=f"Epoch: [{epoch}] Ens:[{idx}]",
+    logger = logger)
+
+    end = time.time()
+    for batch_idx, elem in enumerate(train_loader):
+        Data_time.update(time.time() - end)
+
+        data_id, data, target = io.split_data_target(elem, device)
+        batch_size = target.size(0)
+
+        cls1, cls2, cls_cls = estimator(*data)
+        ens = (cls1 + cls2) / 2
+        ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
+
+        acc_1, correct_1 = accuracy(cls1, target)
+        acc_2, correct_2 = accuracy(cls2, target)
+        acc_ens, correct_ens = accuracy(ens, target)
+        acc_ens_sf, correct_ens_sf = accuracy(ens_sf, target)
+
+        correct_sum = torch.sum(torch.stack((correct_1[0], correct_2[0]), dim=-1), dim=-1)
+        acc_cls, correct_cls = accuracy(cls_cls, correct_sum)
+
+        loss_cls_1 = criterion(cls1, target)
+        loss_cls_2 = criterion(cls2, target)
+        loss_cls_cls = criterion(ens, target)
+        loss_cls_ens = criterion(cls_cls, correct_sum)
+        dis_criterion = torch.nn.L1Loss(reduce=False)
+
+        loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
+
+        cls_loss = (loss_cls_1 + loss_cls_2) / 2
+        loss = torch.mean(loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss) - torch.mean(
+            loss_dis * (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
+                        torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach()))) * aux_dis_lambda
+        loss_cls_cls = torch.mean(loss_cls_cls)
+        loss += loss_cls_cls
+        loss_cls_1 = torch.mean(loss_cls_1)
+        loss_cls_2 = torch.mean(loss_cls_2)
+        loss_cls_ens = torch.mean(loss_cls_ens)
+        loss_dis = torch.mean(loss_dis)
+
+        Train_loss.update(loss.item(), batch_size)
+        Loss_cls_1.update(loss_cls_1.item(), batch_size)
+        Loss_cls_2.update(loss_cls_2.item(), batch_size)
+        Loss_cls_cls.update(loss_cls_cls.item(), batch_size)
+        Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
+        Loss_dis.update(loss_dis.item(), batch_size)
+
+        Acc1.update(acc_1[0].item(), batch_size)
+        Acc2.update(acc_2[0].item(), batch_size)
+        Acc_cls.update(acc_cls[0].item(), batch_size)
+        Acc_ens.update(acc_ens[0].item(), batch_size)
+        Acc_ens_sf.update(acc_ens_sf[0].item(), batch_size)
+        Batch_time.update(time.time() - end)
+    logger.info(progress.display_avg())
+
+    return ens
 
 @torchensemble_model_doc(
     """Implementation on the VotingClassifier.""", "model"
@@ -142,7 +239,7 @@ class VotingClassifier(BaseClassifier):
         outputs = []
         for idx, estimator in enumerate(self.estimators_):
 
-            cls1, cls2 = estimator(*x)
+            cls1, cls2, cls_cls = estimator(*x)
             ens = (cls1 + cls2) / 2
             ret = F.softmax(ens, dim=1)
             outputs.append(ret)
@@ -217,16 +314,21 @@ class VotingClassifier(BaseClassifier):
         # Internal helper function on pesudo forward
         def _forward(estimators, *x):
             outputs = []
+            outputs_sf = []
             for idx, estimator in enumerate(estimators):
 
-                cls1, cls2 = estimator(*x)
+                cls1, cls2, cls_cls = estimator(*x)
                 ens = (cls1 + cls2) / 2
+                ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
+
                 ret = F.softmax(ens, dim=1)
                 outputs.append(ret)
+                outputs_sf.append(ens_sf)
 
             proba = op.average(outputs)
+            proba_sf = op.average(outputs_sf)
 
-            return proba
+            return proba, proba_sf
         # Maintain a pool of workers
         with Parallel(n_jobs=self.n_jobs) as parallel:
 
@@ -270,21 +372,39 @@ class VotingClassifier(BaseClassifier):
 
                 # Validation
                 if test_loader:
+                    for idx in range(self.n_estimators):
+                        _parallel_test_per_epoch(test_loader,
+                                                 estimator,
+                                                 self._criterion,
+                                                 idx,
+                                                 epoch,
+                                                 self.device,
+                                                 self.logger,
+                                                 aux_dis_lambda
+                                                 )
                     self.eval()
                     with torch.no_grad():
                         correct = 0
                         total = 0
-
+                        Acc1 = AverageMeter('Acc1@1', ':6.2f')
+                        Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
+                        progress = ProgressMeter(
+                            len(test_loader),
+                            [Acc1, Acc1_sf],
+                            prefix=f"Epoch: [{epoch}] Ens:[{idx}] ",
+                        logger = self.logger)
                         for _, elem in enumerate(test_loader):
-                            data, target = io.split_data_target(
+                            idx, data, target = io.split_data_target(
                                 elem, self.device
                             )
-                            output = _forward(estimators, *data)
-                            _, predicted = torch.max(output.data, 1)
-                            correct += (predicted == target).sum().item()
-                            total += target.size(0)
-                        acc = 100 * correct / total
-
+                            batch_size = target.size(0)
+                            output, output_sf = _forward(estimators, *data)
+                            acc_1, correct_1 = accuracy(output, target)
+                            acc_sf, correct_1_sf = accuracy(output_sf, target)
+                            Acc1.update(acc_1[0].item(), batch_size)
+                            Acc1_sf.update(acc_sf[0].item(), batch_size)
+                        acc = Acc1.avg
+                        print(progress.display_avg())
                         if acc > best_acc:
                             best_acc = acc
                             self.estimators_ = nn.ModuleList()
