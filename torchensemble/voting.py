@@ -21,7 +21,7 @@ from utils import WarmUpLR, accuracy, AverageMeter, ProgressMeter
 import time
 __all__ = ["VotingClassifier", "VotingRegressor"]
 
-
+cls_cls_map = {}
 def _parallel_fit_per_epoch(
     train_loader,
     estimator,
@@ -54,14 +54,16 @@ def _parallel_fit_per_epoch(
     Train_loss = AverageMeter('Train_loss', ':6.3f')
     Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
     Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
+    Loss_cls_cls = AverageMeter('Loss_cls_cls', ':6.3f')
     Loss_cls_ens = AverageMeter('Loss_cls_ens', ':6.3f')
     Loss_dis = AverageMeter('Loss_dis', ':6.3f')
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
+    Acc_cls = AverageMeter('Acc_cls@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
     progress = ProgressMeter(
         len(train_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Acc1, Acc2, Acc_ens],
+        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_cls_cls, Loss_dis, Acc1, Acc2, Acc_cls, Acc_ens],
         prefix=f"Epoch: [{epoch}] Ens:[{idx}] Lr:[{optimizer.state_dict()['param_groups'][0]['lr']:.5f}]",
     logger = logger)
 
@@ -69,7 +71,7 @@ def _parallel_fit_per_epoch(
     for batch_idx, elem in enumerate(train_loader):
         Data_time.update(time.time() - end)
 
-        data, target = io.split_data_target(elem, device)
+        data_id, data, target = io.split_data_target(elem, device)
         batch_size = target.size(0)
 
         optimizer.zero_grad()
@@ -85,8 +87,8 @@ def _parallel_fit_per_epoch(
 
         loss_cls_1 = criterion(cls1, target)
         loss_cls_2 = criterion(cls2, target)
-        loss_cls_ens = criterion(cls_cls, correct_sum)
-        loss_cls_cls = criterion(ens, target)
+        loss_cls_cls = criterion(cls_cls, target)
+        loss_cls_ens = criterion(ens, correct_sum)
         dis_criterion = torch.nn.L1Loss(reduce=False)
 
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
@@ -95,6 +97,7 @@ def _parallel_fit_per_epoch(
         loss = torch.mean(loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss) - torch.mean(
             loss_dis * (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
                         torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach()))) * aux_dis_lambda
+        loss += loss_cls_cls
         loss_cls_1 = torch.mean(loss_cls_1)
         loss_cls_2 = torch.mean(loss_cls_2)
         loss_cls_ens = torch.mean(loss_cls_ens)
@@ -106,11 +109,13 @@ def _parallel_fit_per_epoch(
         Train_loss.update(loss.item(), batch_size)
         Loss_cls_1.update(loss_cls_1.item(), batch_size)
         Loss_cls_2.update(loss_cls_2.item(), batch_size)
+        Loss_cls_cls.update(loss_cls_cls.item(), batch_size)
         Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
         Loss_dis.update(loss_dis.item(), batch_size)
 
         Acc1.update(acc_1[0], batch_size)
         Acc2.update(acc_2[0], batch_size)
+        Acc_cls.update(acc_cls[0], batch_size)
         Acc_ens.update(acc_ens[0], batch_size)
         Batch_time.update(time.time() - end)
         end = time.time()
@@ -238,38 +243,24 @@ class VotingClassifier(BaseClassifier):
                     msg = "Parallelization on the training epoch: {:03d}"
                     self.logger.info(msg.format(epoch))
 
-                # rets = parallel(
-                #     delayed(_parallel_fit_per_epoch)(
-                #         train_loader,
-                #         estimator,
-                #         cur_lr,
-                #         optimizer,
-                #         self._criterion,
-                #         idx,
-                #         epoch,
-                #         log_interval,
-                #         self.device,
-                #         True,
-                #         self.logger,
-                #         aux_dis_lambda
-                #     )
-                #     for idx, (estimator, optimizer) in enumerate(
-                #         zip(estimators, optimizers)
-                #     )
-                # )
-                delayed(_parallel_fit_per_epoch)(
-                    train_loader,
-                    estimators,
-                    cur_lr,
-                    optimizers,
-                    self._criterion,
-                    idx,
-                    epoch,
-                    log_interval,
-                    self.device,
-                    True,
-                    self.logger,
-                    aux_dis_lambda
+                rets = parallel(
+                    delayed(_parallel_fit_per_epoch)(
+                        train_loader,
+                        estimator,
+                        cur_lr,
+                        optimizer,
+                        self._criterion,
+                        idx,
+                        epoch,
+                        log_interval,
+                        self.device,
+                        True,
+                        self.logger,
+                        aux_dis_lambda
+                    )
+                    for idx, (estimator, optimizer) in enumerate(
+                        zip(estimators, optimizers)
+                    )
                 )
 
                 estimators, optimizers = [], []
