@@ -108,14 +108,13 @@ def _parallel_fit_per_epoch(
                        torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach())) * aux_dis_lambda
         if idx > 0:
             estimator_post = estimator[idx - 1]
-            with torch.no_grad:
-                cls1_before, cls2_before = estimator_post(*data)
-                _, pred_old_1 = cls1_before.detach().topk(1, 1, True, True)
-                _, pred_old_2 = cls2_before.detach().topk(1, 1, True, True)
-                exit_mask_before = (pred_old_1 == pred_old_2).view(-1)
-                loss_weight = pred_1.new_ones(target.size()) * 1.0
-                loss_weight[exit_mask_before] += hm_value
-                loss_weight = F.softmax(loss_weight, 0) * batch_size
+            cls1_before, cls2_before = estimator_post(*data)
+            _, pred_old_1 = cls1_before.detach().topk(1, 1, True, True)
+            _, pred_old_2 = cls2_before.detach().topk(1, 1, True, True)
+            exit_mask_before = (pred_old_1 == pred_old_2).view(-1)
+            loss_weight = pred_1.new_ones(target.size()) * 1.0
+            loss_weight[exit_mask_before] += hm_value
+            loss_weight = F.softmax(loss_weight, 0) * batch_size
             loss = torch.mean(loss_weight * loss)
         else:
             loss = torch.mean(loss)
