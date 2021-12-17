@@ -54,18 +54,18 @@ def _parallel_fit_per_epoch(
     Train_loss = AverageMeter('Train_loss', ':6.3f')
     Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
     Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
-    Loss_cls_cls = AverageMeter('Loss_cls_cls', ':6.3f')
     Loss_cls_ens = AverageMeter('Loss_cls_ens', ':6.3f')
     Loss_dis = AverageMeter('Loss_dis', ':6.3f')
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
-    Acc_cls = AverageMeter('Acc_cls@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    Acc_same = AverageMeter('Acc_same@1', ':6.2f')
+    Exit_rate = AverageMeter('Exit_rate@1', ':6.2f')
     Acc_ens_sf = AverageMeter('Acc_ens_sf@1', ':6.2f')
 
     progress = ProgressMeter(
         len(train_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_cls, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Acc_cls, Acc1, Acc2, Acc_ens, Acc_ens_sf],
+        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Exit_rate, Acc_same, Acc1, Acc2, Acc_ens, Acc_ens_sf],
         prefix=f"Epoch: [{epoch}] Ens:[{idx}] Lr:[{optimizer.state_dict()['param_groups'][0]['lr']:.5f}]",
     logger = logger)
 
@@ -77,7 +77,7 @@ def _parallel_fit_per_epoch(
         batch_size = target.size(0)
 
         optimizer.zero_grad()
-        cls1, cls2, cls_cls = estimator(*data)
+        cls1, cls2  = estimator(*data)
         ens = (cls1 + cls2) / 2
         ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
 
@@ -85,14 +85,16 @@ def _parallel_fit_per_epoch(
         acc_2, correct_2 = accuracy(cls2, target)
         acc_ens, correct_ens = accuracy(ens, target)
         acc_ens_sf, correct_ens_sf = accuracy(ens_sf, target)
-
-        correct_sum = torch.sum(torch.stack((correct_1[0], correct_2[0]), dim=-1), dim=-1)
-        acc_cls, correct_cls = accuracy(cls_cls, correct_sum)
+        _, pred_1 = cls1.topk(1, 1, True, True)
+        _, pred_2 = cls2.topk(1, 1, True, True)
+        _, pred_ens = ens.topk(1, 1, True, True)
+        exit_mask = (pred_1 == pred_2).view(-1)
+        exit_rate = torch.sum(exit_mask) / batch_size * 100
+        acc_same, _ = accuracy(ens[exit_mask], target[exit_mask]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
 
         loss_cls_1 = criterion(cls1, target)
         loss_cls_2 = criterion(cls2, target)
-        loss_cls_cls = criterion(ens, target)
-        loss_cls_ens = criterion(cls_cls, correct_sum)
+        loss_cls_ens = criterion(ens, target)
         dis_criterion = torch.nn.L1Loss(reduce=False)
 
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
@@ -101,8 +103,6 @@ def _parallel_fit_per_epoch(
         loss = torch.mean(loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss) - torch.mean(
             loss_dis * (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
                         torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach()))) * aux_dis_lambda
-        loss_cls_cls = torch.mean(loss_cls_cls)
-        loss += loss_cls_cls
         loss_cls_1 = torch.mean(loss_cls_1)
         loss_cls_2 = torch.mean(loss_cls_2)
         loss_cls_ens = torch.mean(loss_cls_ens)
@@ -114,14 +114,15 @@ def _parallel_fit_per_epoch(
         Train_loss.update(loss.item(), batch_size)
         Loss_cls_1.update(loss_cls_1.item(), batch_size)
         Loss_cls_2.update(loss_cls_2.item(), batch_size)
-        Loss_cls_cls.update(loss_cls_cls.item(), batch_size)
         Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
         Loss_dis.update(loss_dis.item(), batch_size)
 
+        Exit_rate.update(exit_rate.item(), batch_size)
+
         Acc1.update(acc_1[0].item(), batch_size)
         Acc2.update(acc_2[0].item(), batch_size)
-        Acc_cls.update(acc_cls[0].item(), batch_size)
         Acc_ens.update(acc_ens[0].item(), batch_size)
+        Acc_same.update(acc_same[0].item(), batch_size)
         Acc_ens_sf.update(acc_ens_sf[0].item(), batch_size)
 
         Batch_time.update(time.time() - end)
@@ -162,10 +163,13 @@ def _parallel_test_per_epoch(
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    Acc_same = AverageMeter('Acc_same@1', ':6.2f')
+
+    Exit_rate = AverageMeter('Exit_rate@1', ':6.2f')
     Acc_ens_sf = AverageMeter('Acc_ens_sf@1', ':6.2f')
     progress = ProgressMeter(
         len(train_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Acc1, Acc2, Acc_ens, Acc_ens_sf],
+        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Exit_rate, Acc_same, Acc1, Acc2, Acc_ens, Acc_ens_sf],
         prefix=f"Epoch: [{epoch}] Ens:[{idx}]",
     logger = logger)
 
@@ -184,12 +188,16 @@ def _parallel_test_per_epoch(
         acc_2, correct_2 = accuracy(cls2, target)
         acc_ens, correct_ens = accuracy(ens, target)
         acc_ens_sf, correct_ens_sf = accuracy(ens_sf, target)
-
-        correct_sum = torch.sum(torch.stack((correct_1[0], correct_2[0]), dim=-1), dim=-1)
+        _, pred_1 = cls1.topk(1, 1, True, True)
+        _, pred_2 = cls2.topk(1, 1, True, True)
+        _, pred_ens = ens.topk(1, 1, True, True)
+        exit_mask = (pred_1 == pred_2).view(-1)
+        exit_rate = torch.sum(exit_mask) / batch_size * 100
+        acc_same, _ = accuracy(ens[exit_mask], target[exit_mask]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
 
         loss_cls_1 = criterion(cls1, target)
         loss_cls_2 = criterion(cls2, target)
-        loss_cls_cls = criterion(ens, target)
+        loss_cls_ens = criterion(ens, target)
         dis_criterion = torch.nn.L1Loss(reduce=False)
 
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
@@ -198,8 +206,6 @@ def _parallel_test_per_epoch(
         loss = torch.mean(loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss) - torch.mean(
             loss_dis * (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
                         torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach()))) * aux_dis_lambda
-        loss_cls_cls = torch.mean(loss_cls_cls)
-        loss += loss_cls_cls
         loss_cls_1 = torch.mean(loss_cls_1)
         loss_cls_2 = torch.mean(loss_cls_2)
         loss_cls_ens = torch.mean(loss_cls_ens)
@@ -209,10 +215,14 @@ def _parallel_test_per_epoch(
         Loss_cls_1.update(loss_cls_1.item(), batch_size)
         Loss_cls_2.update(loss_cls_2.item(), batch_size)
         Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
+
         Loss_dis.update(loss_dis.item(), batch_size)
+
+        Exit_rate.update(exit_rate.item(), batch_size)
 
         Acc1.update(acc_1[0].item(), batch_size)
         Acc2.update(acc_2[0].item(), batch_size)
+        Acc_same.update(acc_same[0].item(), batch_size)
         Acc_ens.update(acc_ens[0].item(), batch_size)
         Acc_ens_sf.update(acc_ens_sf[0].item(), batch_size)
         Batch_time.update(time.time() - end)
@@ -301,7 +311,6 @@ class VotingClassifier(BaseClassifier):
             ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
             _, pred_1 = cls1.topk(1, 1, True, True)
             _, pred_2 = cls2.topk(1, 1, True, True)
-            loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
             _, pred_ens = ens.topk(1, 1, True, True)
             ret = F.softmax(ens, dim=1)
             outputs.append(ret)
@@ -361,7 +370,7 @@ class VotingClassifier(BaseClassifier):
             outputs_sf = []
             for idx, estimator in enumerate(estimators):
 
-                cls1, cls2, cls_cls = estimator(*x)
+                cls1, cls2 = estimator(*x)
                 ens = (cls1 + cls2) / 2
                 ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
 

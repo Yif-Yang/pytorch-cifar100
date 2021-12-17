@@ -112,7 +112,7 @@ if __name__ == '__main__':
         settings.CIFAR100_TRAIN_MEAN,
         settings.CIFAR100_TRAIN_STD,
         num_workers=4,
-        batch_size=1,
+        batch_size=args.b,
         shuffle=True
     )
     logger = set_logger(
