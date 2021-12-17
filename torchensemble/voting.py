@@ -157,17 +157,15 @@ def _parallel_test_per_epoch(
     Train_loss = AverageMeter('Train_loss', ':6.3f')
     Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
     Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
-    Loss_cls_cls = AverageMeter('Loss_cls_cls', ':6.3f')
     Loss_cls_ens = AverageMeter('Loss_cls_ens', ':6.3f')
     Loss_dis = AverageMeter('Loss_dis', ':6.3f')
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
-    Acc_cls = AverageMeter('Acc_cls@1', ':6.2f')
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
     Acc_ens_sf = AverageMeter('Acc_ens_sf@1', ':6.2f')
     progress = ProgressMeter(
         len(train_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_cls, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Acc_cls, Acc1, Acc2, Acc_ens, Acc_ens_sf],
+        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Acc1, Acc2, Acc_ens, Acc_ens_sf],
         prefix=f"Epoch: [{epoch}] Ens:[{idx}]",
     logger = logger)
 
@@ -178,7 +176,7 @@ def _parallel_test_per_epoch(
         data_id, data, target = io.split_data_target(elem, device)
         batch_size = target.size(0)
 
-        cls1, cls2, cls_cls = estimator(*data)
+        cls1, cls2 = estimator(*data)
         ens = (cls1 + cls2) / 2
         ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
 
@@ -188,12 +186,10 @@ def _parallel_test_per_epoch(
         acc_ens_sf, correct_ens_sf = accuracy(ens_sf, target)
 
         correct_sum = torch.sum(torch.stack((correct_1[0], correct_2[0]), dim=-1), dim=-1)
-        acc_cls, correct_cls = accuracy(cls_cls, correct_sum)
 
         loss_cls_1 = criterion(cls1, target)
         loss_cls_2 = criterion(cls2, target)
         loss_cls_cls = criterion(ens, target)
-        loss_cls_ens = criterion(cls_cls, correct_sum)
         dis_criterion = torch.nn.L1Loss(reduce=False)
 
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
@@ -212,13 +208,11 @@ def _parallel_test_per_epoch(
         Train_loss.update(loss.item(), batch_size)
         Loss_cls_1.update(loss_cls_1.item(), batch_size)
         Loss_cls_2.update(loss_cls_2.item(), batch_size)
-        Loss_cls_cls.update(loss_cls_cls.item(), batch_size)
         Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
         Loss_dis.update(loss_dis.item(), batch_size)
 
         Acc1.update(acc_1[0].item(), batch_size)
         Acc2.update(acc_2[0].item(), batch_size)
-        Acc_cls.update(acc_cls[0].item(), batch_size)
         Acc_ens.update(acc_ens[0].item(), batch_size)
         Acc_ens_sf.update(acc_ens_sf[0].item(), batch_size)
         Batch_time.update(time.time() - end)
@@ -239,7 +233,7 @@ class VotingClassifier(BaseClassifier):
         outputs = []
         for idx, estimator in enumerate(self.estimators_):
 
-            cls1, cls2, cls_cls = estimator(*x)
+            cls1, cls2  = estimator(*x)
             ens = (cls1 + cls2) / 2
             ret = F.softmax(ens, dim=1)
             outputs.append(ret)
@@ -247,7 +241,30 @@ class VotingClassifier(BaseClassifier):
         proba = op.average(outputs)
 
         return proba
+    @torch.no_grad()
+    def evaluate(self, test_loader, return_loss=False):
+        """Docstrings decorated by downstream models."""
+        self.eval()
 
+        Acc1 = AverageMeter('Acc1@1', ':6.2f')
+        Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
+        progress = ProgressMeter(
+            len(test_loader),
+            [Acc1, Acc1_sf],
+            prefix=f"Eval: ",
+            logger = self.logger)
+        for _, elem in enumerate(test_loader):
+            idx, data, target = io.split_data_target(
+                elem, self.device
+            )
+            batch_size = target.size(0)
+            output, output_sf = self._forward(self.estimators_, target, *data)
+            acc_1, correct_1 = accuracy(output, target)
+            acc_sf, correct_1_sf = accuracy(output_sf, target)
+            Acc1.update(acc_1[0].item(), batch_size)
+            Acc1_sf.update(acc_sf[0].item(), batch_size)
+        print(progress.display_avg())
+        return Acc1.avg
     @torchensemble_model_doc(
         """Set the attributes on optimizer for VotingClassifier.""",
         "set_optimizer",
@@ -272,6 +289,33 @@ class VotingClassifier(BaseClassifier):
     @torchensemble_model_doc(
         """Implementation on the training stage of VotingClassifier.""", "fit"
     )
+    # Internal helper function on pesudo forward
+    def _forward(self, estimators, target, *x):
+        outputs = []
+        outputs_sf = []
+        for idx, estimator in enumerate(estimators):
+            dis_criterion = torch.nn.L1Loss(reduce=False)
+
+            cls1, cls2 = estimator(*x)
+            ens = (cls1 + cls2) / 2
+            ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
+            _, pred_1 = cls1.topk(1, 1, True, True)
+            _, pred_2 = cls2.topk(1, 1, True, True)
+            loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
+            _, pred_ens = ens.topk(1, 1, True, True)
+            ret = F.softmax(ens, dim=1)
+            outputs.append(ret)
+            outputs_sf.append(ens_sf)
+            # print((idx, pred_1 == pred_2, pred_1, pred_2, pred_ens, loss_dis, target))
+            if pred_1.item() == pred_2.data.item():
+                if pred_2 != target:
+                    print(idx, pred_1, pred_2, pred_ens, target)
+                break
+
+        proba = op.average(outputs)
+        proba_sf = op.average(outputs_sf)
+
+        return proba, proba_sf
     def fit(
         self,
         train_loader,

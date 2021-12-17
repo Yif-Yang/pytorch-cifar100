@@ -17,7 +17,7 @@ from utils import get_training_dataloader, get_test_dataloader
 import logging
 from torchensemble.voting import VotingClassifier
 from torchensemble.utils.logging import set_logger
-
+from torchensemble.utils import io
 def get_logger(file_path):
     """ Make python logger """
     # [!] Since tensorboardX use default logger (e.g. logging.info()), we should use custom logger
@@ -112,7 +112,7 @@ if __name__ == '__main__':
         settings.CIFAR100_TRAIN_MEAN,
         settings.CIFAR100_TRAIN_STD,
         num_workers=4,
-        batch_size=args.b,
+        batch_size=1,
         shuffle=True
     )
     logger = set_logger(
@@ -129,16 +129,19 @@ if __name__ == '__main__':
         )
     toc = time.time()
     training_time = toc - tic
-    # Evaluating
-    tic = time.time()
-    testing_acc, testing_loss = net.evaluate(cifar100_test_loader, return_loss=True)
-    toc = time.time()
-    evaluating_time = toc - tic
-    records = []
-    records.append(
-        ("VotingClassifier", training_time, evaluating_time, testing_acc)
-    )
-    display_records(records, logger)
+    if args.resume:
+        io.load(net, args.resume)
+        # Evaluating
+        tic = time.time()
+        # testing_acc, testing_loss = net.evaluate(cifar100_test_loader, return_loss=True)
+        testing_acc  = net.evaluate(cifar100_test_loader, return_loss=True)
+        toc = time.time()
+        evaluating_time = toc - tic
+    # records = []
+    # records.append(
+    #     ("VotingClassifier", training_time, evaluating_time, testing_acc)
+    # )
+    # display_records(records, logger)
     cp_cmd = f'cp -r {args.work_dir} {args.blob_dir}'
     logger.info(cp_cmd)
     os.system(cp_cmd)

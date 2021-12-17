@@ -235,7 +235,7 @@ class BaseClassifier(BaseModule):
         loss = 0.0
 
         for _, elem in enumerate(test_loader):
-            data, target = split_data_target(elem, self.device)
+            idx, data, target = split_data_target(elem, self.device)
             output = self.forward(*data)
             _, predicted = torch.max(output.data, 1)
             correct += (predicted == target).sum().item()
