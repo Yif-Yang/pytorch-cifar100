@@ -22,6 +22,7 @@ import time
 __all__ = ["VotingClassifier", "VotingRegressor"]
 
 cls_cls_map = {}
+estimator_post = None
 def _parallel_fit_per_epoch(
     train_loader,
     estimator,
@@ -49,6 +50,7 @@ def _parallel_fit_per_epoch(
     if epoch == 0:
         iter_per_epoch = len(train_loader)
         warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch)
+    global estimator_post
 
     estimator_now = estimator[idx]
     Batch_time = AverageMeter('batch_time', ':6.3f')
@@ -116,8 +118,10 @@ def _parallel_fit_per_epoch(
             loss_weight[exit_mask_before] += hm_value
             loss_weight = F.softmax(loss_weight, 0) * batch_size
             loss = torch.mean(loss_weight * loss)
+            estimator_post = estimator
         else:
             loss = torch.mean(loss)
+            estimator_post = estimator
         loss_cls_1 = torch.mean(loss_cls_1)
         loss_cls_2 = torch.mean(loss_cls_2)
         loss_cls_ens = torch.mean(loss_cls_ens)
@@ -151,6 +155,8 @@ def _parallel_fit_per_epoch(
 
     return estimator_now, optimizer
 
+
+@torch.no_grad()
 def _parallel_test_per_epoch(
     train_loader,
     estimator,
@@ -460,20 +466,18 @@ class VotingClassifier(BaseClassifier):
 
                 # Validation
                 if test_loader:
-                    for idx in range(self.n_estimators):
-                        _parallel_test_per_epoch(test_loader,
-                                                 estimator,
-                                                 self._criterion,
-                                                 idx,
-                                                 epoch,
-                                                 self.device,
-                                                 self.logger,
-                                                 aux_dis_lambda
-                                                 )
-                    self.eval()
                     with torch.no_grad():
-                        correct = 0
-                        total = 0
+                        self.eval()
+                        for idx in range(self.n_estimators):
+                            _parallel_test_per_epoch(test_loader,
+                                                     estimators[idx],
+                                                     self._criterion,
+                                                     idx,
+                                                     epoch,
+                                                     self.device,
+                                                     self.logger,
+                                                     aux_dis_lambda
+                                                     )
                         Acc1 = AverageMeter('Acc1@1', ':6.2f')
                         Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
                         Acc1_ex = AverageMeter('Acc1_ex@1', ':6.2f')
