@@ -49,6 +49,7 @@ def _parallel_fit_per_epoch(
         iter_per_epoch = len(train_loader)
         warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch)
 
+    estimator_now = estimator[idx]
     Batch_time = AverageMeter('batch_time', ':6.3f')
     Data_time = AverageMeter('Data time', ':6.3f')
     Train_loss = AverageMeter('Train_loss', ':6.3f')
@@ -77,7 +78,7 @@ def _parallel_fit_per_epoch(
         batch_size = target.size(0)
 
         optimizer.zero_grad()
-        cls1, cls2  = estimator(*data)
+        cls1, cls2 = estimator_now(*data)
         ens = (cls1 + cls2) / 2
         ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
 
@@ -89,6 +90,7 @@ def _parallel_fit_per_epoch(
         _, pred_2 = cls2.topk(1, 1, True, True)
         _, pred_ens = ens.topk(1, 1, True, True)
         exit_mask = (pred_1 == pred_2).view(-1)
+
         exit_rate = torch.sum(exit_mask) / batch_size * 100
         acc_same, _ = accuracy(ens[exit_mask], target[exit_mask]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
 
@@ -100,9 +102,17 @@ def _parallel_fit_per_epoch(
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
 
         cls_loss = (loss_cls_1 + loss_cls_2) / 2
-        loss = torch.mean(loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss) - torch.mean(
-            loss_dis * (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
-                        torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach()))) * aux_dis_lambda
+        loss = loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss - loss_dis * (
+                    torch.max(cls_loss.detach()) - cls_loss.detach()) / (
+                       torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach())) * aux_dis_lambda
+        # if idx > 1:
+        #     estimator_post = estimator[idx-1]
+        #     cls1_before, cls2_before = estimator_post(*data)
+        #     exit_mask_before = (cls1_before == cls2_before).view(-1)
+        #
+        # else:
+        #     loss = torch.mean(loss)
+        loss = torch.mean(loss)
         loss_cls_1 = torch.mean(loss_cls_1)
         loss_cls_2 = torch.mean(loss_cls_2)
         loss_cls_ens = torch.mean(loss_cls_ens)
@@ -317,8 +327,6 @@ class VotingClassifier(BaseClassifier):
             outputs_sf.append(ens_sf)
             # print((idx, pred_1 == pred_2, pred_1, pred_2, pred_ens, loss_dis, target))
             if pred_1.item() == pred_2.data.item():
-                if pred_2 != target:
-                    print(idx, pred_1, pred_2, pred_ens, target)
                 break
 
         proba = op.average(outputs)
@@ -401,7 +409,7 @@ class VotingClassifier(BaseClassifier):
                 rets = parallel(
                     delayed(_parallel_fit_per_epoch)(
                         train_loader,
-                        estimator,
+                        estimators,
                         cur_lr,
                         optimizer,
                         self._criterion,

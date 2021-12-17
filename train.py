@@ -129,14 +129,22 @@ if __name__ == '__main__':
         )
     toc = time.time()
     training_time = toc - tic
+    # if args.resume:
+    cifar100_test_loader = get_test_dataloader(
+        settings.CIFAR100_TRAIN_MEAN,
+        settings.CIFAR100_TRAIN_STD,
+        num_workers=4,
+        batch_size=1,
+        shuffle=True
+    )
     if args.resume:
         io.load(net, args.resume)
-        # Evaluating
-        tic = time.time()
-        # testing_acc, testing_loss = net.evaluate(cifar100_test_loader, return_loss=True)
-        testing_acc  = net.evaluate(cifar100_test_loader, return_loss=True)
-        toc = time.time()
-        evaluating_time = toc - tic
+    # Evaluating
+    tic = time.time()
+    # testing_acc, testing_loss = net.evaluate(cifar100_test_loader, return_loss=True)
+    testing_acc = net.evaluate(cifar100_test_loader, return_loss=True)
+    toc = time.time()
+    evaluating_time = toc - tic
     # records = []
     # records.append(
     #     ("VotingClassifier", training_time, evaluating_time, testing_acc)
