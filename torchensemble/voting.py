@@ -34,7 +34,8 @@ def _parallel_fit_per_epoch(
     device,
     is_classification,
     logger,
-    aux_dis_lambda
+    aux_dis_lambda,
+    hm_value
 ):
     """
     Private function used to fit base estimators in parallel.
@@ -105,14 +106,20 @@ def _parallel_fit_per_epoch(
         loss = loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss - loss_dis * (
                     torch.max(cls_loss.detach()) - cls_loss.detach()) / (
                        torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach())) * aux_dis_lambda
-        # if idx > 1:
-        #     estimator_post = estimator[idx-1]
-        #     cls1_before, cls2_before = estimator_post(*data)
-        #     exit_mask_before = (cls1_before == cls2_before).view(-1)
-        #
-        # else:
-        #     loss = torch.mean(loss)
-        loss = torch.mean(loss)
+        if idx > 0:
+            estimator_post = estimator[idx - 1]
+            cls1_before, cls2_before = estimator_post(*data)
+            _, pred_old_1 = cls1_before.topk(1, 1, True, True)
+            _, pred_old_2 = cls2_before.topk(1, 1, True, True)
+            exit_mask_before = (pred_old_1 == pred_old_2).view(-1)
+            loss_weight = pred_1.new_ones(target.size()) * 1.0
+            loss_weight[exit_mask_before] += hm_value
+            loss_weight = F.softmax(loss_weight, 0) * batch_size
+            loss = torch.mean(loss_weight * loss)
+
+
+        else:
+            loss = torch.mean(loss)
         loss_cls_1 = torch.mean(loss_cls_1)
         loss_cls_2 = torch.mean(loss_cls_2)
         loss_cls_ens = torch.mean(loss_cls_ens)
@@ -144,7 +151,7 @@ def _parallel_fit_per_epoch(
         if epoch == 0:
             warmup_scheduler.step()
 
-    return estimator, optimizer
+    return estimator_now, optimizer
 
 def _parallel_test_per_epoch(
     train_loader,
@@ -253,7 +260,7 @@ class VotingClassifier(BaseClassifier):
         outputs = []
         for idx, estimator in enumerate(self.estimators_):
 
-            cls1, cls2  = estimator(*x)
+            cls1, cls2 = estimator(*x)
             ens = (cls1 + cls2) / 2
             ret = F.softmax(ens, dim=1)
             outputs.append(ret)
@@ -278,7 +285,7 @@ class VotingClassifier(BaseClassifier):
                 elem, self.device
             )
             batch_size = target.size(0)
-            output, output_sf = self._forward(self.estimators_, target, *data)
+            output, output_sf = self._forward(self.estimators_, *data)
             acc_1, correct_1 = accuracy(output, target)
             acc_sf, correct_1_sf = accuracy(output_sf, target)
             Acc1.update(acc_1[0].item(), batch_size)
@@ -310,25 +317,23 @@ class VotingClassifier(BaseClassifier):
         """Implementation on the training stage of VotingClassifier.""", "fit"
     )
     # Internal helper function on pesudo forward
-    def _forward(self, estimators, target, *x):
+    def _forward(self, estimators, *x):
         outputs = []
         outputs_sf = []
         for idx, estimator in enumerate(estimators):
-            dis_criterion = torch.nn.L1Loss(reduce=False)
 
             cls1, cls2 = estimator(*x)
             ens = (cls1 + cls2) / 2
             ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
             _, pred_1 = cls1.topk(1, 1, True, True)
             _, pred_2 = cls2.topk(1, 1, True, True)
-            _, pred_ens = ens.topk(1, 1, True, True)
             ret = F.softmax(ens, dim=1)
+            if len(outputs) > 0:
+                ret[mask] = outputs[-1][mask]
+                ens_sf[mask] = outputs_sf[-1][mask]
             outputs.append(ret)
             outputs_sf.append(ens_sf)
-            # print((idx, pred_1 == pred_2, pred_1, pred_2, pred_ens, loss_dis, target))
-            if pred_1.item() == pred_2.data.item():
-                break
-
+            mask = pred_1.view(-1) == pred_2.view(-1)
         proba = op.average(outputs)
         proba_sf = op.average(outputs_sf)
 
@@ -342,6 +347,7 @@ class VotingClassifier(BaseClassifier):
         save_model=True,
         save_dir=None,
         aux_dis_lambda=0,
+        hm_value=5
     ):
 
         self._validate_parameters(epochs, log_interval)
@@ -372,6 +378,28 @@ class VotingClassifier(BaseClassifier):
         # Utils
         best_acc = 0.0
 
+        # Internal helper function on pesudo forward
+        def _forward_ex(estimators, *x):
+            outputs = []
+            outputs_sf = []
+            for idx, estimator in enumerate(estimators):
+
+                cls1, cls2 = estimator(*x)
+                ens = (cls1 + cls2) / 2
+                ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
+                _, pred_1 = cls1.topk(1, 1, True, True)
+                _, pred_2 = cls2.topk(1, 1, True, True)
+                ret = F.softmax(ens, dim=1)
+                if len(outputs) > 0:
+                    ret[mask] = outputs[-1][mask]
+                    ens_sf[mask] = outputs_sf[-1][mask]
+                outputs.append(ret)
+                outputs_sf.append(ens_sf)
+                mask = pred_1.view(-1) == pred_2.view(-1)
+            proba = op.average(outputs)
+            proba_sf = op.average(outputs_sf)
+
+            return proba, proba_sf
         # Internal helper function on pesudo forward
         def _forward(estimators, *x):
             outputs = []
@@ -419,7 +447,8 @@ class VotingClassifier(BaseClassifier):
                         self.device,
                         True,
                         self.logger,
-                        aux_dis_lambda
+                        aux_dis_lambda,
+                        hm_value
                     )
                     for idx, (estimator, optimizer) in enumerate(
                         zip(estimators, optimizers)
@@ -449,9 +478,11 @@ class VotingClassifier(BaseClassifier):
                         total = 0
                         Acc1 = AverageMeter('Acc1@1', ':6.2f')
                         Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
+                        Acc1_ex = AverageMeter('Acc1_ex@1', ':6.2f')
+                        Acc1_ex_sf = AverageMeter('Acc1_ex_sf@1', ':6.2f')
                         progress = ProgressMeter(
                             len(test_loader),
-                            [Acc1, Acc1_sf],
+                            [Acc1, Acc1_sf, Acc1_ex, Acc1_ex_sf],
                             prefix=f"Epoch: [{epoch}] Ens:[{idx}] ",
                         logger = self.logger)
                         for _, elem in enumerate(test_loader):
@@ -460,10 +491,15 @@ class VotingClassifier(BaseClassifier):
                             )
                             batch_size = target.size(0)
                             output, output_sf = _forward(estimators, *data)
-                            acc_1, correct_1 = accuracy(output, target)
-                            acc_sf, correct_1_sf = accuracy(output_sf, target)
+                            output_ex, output_ex_sf = _forward_ex(estimators, *data)
+                            acc_1, _ = accuracy(output, target)
+                            acc_sf, _ = accuracy(output_sf, target)
+                            acc1_ex, _ = accuracy(output_ex, target)
+                            acc1_ex_sf, _ = accuracy(output_ex_sf, target)
                             Acc1.update(acc_1[0].item(), batch_size)
                             Acc1_sf.update(acc_sf[0].item(), batch_size)
+                            Acc1_ex.update(acc1_ex[0].item(), batch_size)
+                            Acc1_ex_sf.update(acc1_ex_sf[0].item(), batch_size)
                         acc = Acc1.avg
                         print(progress.display_avg())
                         if acc > best_acc:

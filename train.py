@@ -62,6 +62,7 @@ if __name__ == '__main__':
     parser.add_argument('-print_freq', type=int, default=100, help='warm up training phase')
     parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
     parser.add_argument('-aux_dis_lambda', type=float, default=0, help='aux_dis_lambda loss rate')
+    parser.add_argument('-hm_value', type=float, default=2, help='hm_value loss rate')
     parser.add_argument('-resume', type=str, default=None, help='dir name')
     parser.add_argument('-nesterov', action='store_true', default=False, help='resume training')
     parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
@@ -125,24 +126,17 @@ if __name__ == '__main__':
         test_loader=cifar100_test_loader,
         save_model=True,
         save_dir=checkpoint_path,
-        aux_dis_lambda=args.aux_dis_lambda
+        aux_dis_lambda=args.aux_dis_lambda,
+        hm_value=args.hm_value
         )
     toc = time.time()
     training_time = toc - tic
-    # if args.resume:
-    cifar100_test_loader = get_test_dataloader(
-        settings.CIFAR100_TRAIN_MEAN,
-        settings.CIFAR100_TRAIN_STD,
-        num_workers=4,
-        batch_size=1,
-        shuffle=True
-    )
     if args.resume:
         io.load(net, args.resume)
     # Evaluating
     tic = time.time()
     # testing_acc, testing_loss = net.evaluate(cifar100_test_loader, return_loss=True)
-    testing_acc = net.evaluate(cifar100_test_loader, return_loss=True)
+    # testing_acc = net.evaluate(cifar100_test_loader, return_loss=True)
     toc = time.time()
     evaluating_time = toc - tic
     # records = []
