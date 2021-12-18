@@ -22,7 +22,6 @@ import time
 __all__ = ["VotingClassifier", "VotingRegressor"]
 
 cls_cls_map = {}
-estimator_post = None
 def _parallel_fit_per_epoch(
     train_loader,
     estimator,
@@ -50,7 +49,6 @@ def _parallel_fit_per_epoch(
     if epoch == 0:
         iter_per_epoch = len(train_loader)
         warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch)
-    global estimator_post
 
     estimator_now = estimator[idx]
     Batch_time = AverageMeter('batch_time', ':6.3f')
@@ -423,9 +421,11 @@ class VotingClassifier(BaseClassifier):
 
             return proba, proba_sf
         # Maintain a pool of workers
-        with Parallel(n_jobs=self.n_jobs) as parallel:
 
-            # Training loop
+        # Training loop
+        for train_idx in range(self.n_estimators):
+            if train_idx > 0:
+                estimators[train_idx - 1] = self.estimators_[train_idx - 1]
             for epoch in range(epochs):
                 self.train()
 
@@ -438,46 +438,35 @@ class VotingClassifier(BaseClassifier):
                     msg = "Parallelization on the training epoch: {:03d}"
                     self.logger.info(msg.format(epoch))
 
-                rets = parallel(
-                    delayed(_parallel_fit_per_epoch)(
-                        train_loader,
-                        estimators,
-                        cur_lr,
-                        optimizer,
-                        self._criterion,
-                        idx,
-                        epoch,
-                        log_interval,
-                        self.device,
-                        True,
-                        self.logger,
-                        aux_dis_lambda,
-                        hm_value
-                    )
-                    for idx, (estimator, optimizer) in enumerate(
-                        zip(estimators, optimizers)
-                    )
+                estimators[train_idx], optimizers[train_idx] = _parallel_fit_per_epoch(
+                    train_loader,
+                    estimators,
+                    cur_lr,
+                    optimizers[train_idx],
+                    self._criterion,
+                    train_idx,
+                    epoch,
+                    log_interval,
+                    self.device,
+                    True,
+                    self.logger,
+                    aux_dis_lambda,
+                    hm_value
                 )
-
-                estimators, optimizers = [], []
-                for estimator, optimizer in rets:
-                    estimators.append(estimator)
-                    optimizers.append(optimizer)
 
                 # Validation
                 if test_loader:
                     with torch.no_grad():
                         self.eval()
-                        for idx in range(self.n_estimators):
-                            _parallel_test_per_epoch(test_loader,
-                                                     estimators[idx],
-                                                     self._criterion,
-                                                     idx,
-                                                     epoch,
-                                                     self.device,
-                                                     self.logger,
-                                                     aux_dis_lambda
-                                                     )
+                        _parallel_test_per_epoch(test_loader,
+                                                 estimators[train_idx],
+                                                 self._criterion,
+                                                 train_idx,
+                                                 epoch,
+                                                 self.device,
+                                                 self.logger,
+                                                 aux_dis_lambda
+                                                 )
                         Acc1 = AverageMeter('Acc1@1', ':6.2f')
                         Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
                         Acc1_ex = AverageMeter('Acc1_ex@1', ':6.2f')
@@ -485,15 +474,15 @@ class VotingClassifier(BaseClassifier):
                         progress = ProgressMeter(
                             len(test_loader),
                             [Acc1, Acc1_sf, Acc1_ex, Acc1_ex_sf],
-                            prefix=f"Epoch: [{epoch}] Ens:[{idx}] ",
+                            prefix=f"Epoch: [{epoch}] Ens:[{train_idx}] ",
                         logger = self.logger)
                         for _, elem in enumerate(test_loader):
                             idx, data, target = io.split_data_target(
                                 elem, self.device
                             )
                             batch_size = target.size(0)
-                            output, output_sf = _forward(estimators, *data)
-                            output_ex, output_ex_sf = _forward_ex(estimators, *data)
+                            output, output_sf = _forward(estimators[:train_idx + 1], *data)
+                            output_ex, output_ex_sf = _forward_ex(estimators[:train_idx + 1], *data)
                             acc_1, _ = accuracy(output, target)
                             acc_sf, _ = accuracy(output_sf, target)
                             acc1_ex, _ = accuracy(output_ex, target)
@@ -507,29 +496,30 @@ class VotingClassifier(BaseClassifier):
                         if acc > best_acc:
                             best_acc = acc
                             self.estimators_ = nn.ModuleList()
-                            self.estimators_.extend(estimators)
-                            if save_model:
+                            import copy
+                            self.estimators_.extend([copy.deepcopy(e) for e in estimators])
+                            if save_model and train_idx + 1 == self.n_estimators:
                                 io.save(self, save_dir, self.logger)
 
                         msg = (
-                            "Epoch: {:03d} | Validation Acc: {:.3f}"
+                            "Train_idx: {:03d} | Epoch: {:03d} | Validation Acc: {:.3f}"
                             " % | Historical Best: {:.3f} %"
                         )
-                        self.logger.info(msg.format(epoch, acc, best_acc))
+                        self.logger.info(msg.format(train_idx, epoch, acc, best_acc))
                         if self.tb_logger:
                             self.tb_logger.add_scalar(
-                                "voting/Validation_Acc", acc, epoch
+                                f"voting/Validation_Acc_{train_idx}", acc, epoch
                             )
 
-                # Update the scheduler
-                with warnings.catch_warnings():
+                    # Update the scheduler
+                    with warnings.catch_warnings():
 
-                    # UserWarning raised by PyTorch is ignored because
-                    # scheduler does not have a real effect on the optimizer.
-                    warnings.simplefilter("ignore", UserWarning)
+                        # UserWarning raised by PyTorch is ignored because
+                        # scheduler does not have a real effect on the optimizer.
+                        warnings.simplefilter("ignore", UserWarning)
 
-                    if self.use_scheduler_:
-                        scheduler_.step()
+                        if self.use_scheduler_:
+                            scheduler_.step()
 
         self.estimators_ = nn.ModuleList()
         self.estimators_.extend(estimators)
