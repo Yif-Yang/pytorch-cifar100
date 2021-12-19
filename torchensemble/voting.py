@@ -116,10 +116,8 @@ def _parallel_fit_per_epoch(
             loss_weight[exit_mask_before] = 1.0
             # loss_weight = loss_weight * batch_size / torch.sum(loss_weight)
             loss = torch.mean(loss_weight * loss)
-            estimator_post = estimator
         else:
             loss = torch.mean(loss)
-            estimator_post = estimator
         loss_cls_1 = torch.mean(loss_cls_1)
         loss_cls_2 = torch.mean(loss_cls_2)
         loss_cls_ens = torch.mean(loss_cls_ens)
@@ -378,7 +376,6 @@ class VotingClassifier(BaseClassifier):
             self._criterion = nn.CrossEntropyLoss()
 
         # Utils
-        best_acc = 0.0
 
         # Internal helper function on pesudo forward
         def _forward_ex(estimators, *x):
@@ -424,6 +421,7 @@ class VotingClassifier(BaseClassifier):
 
         # Training loop
         for train_idx in range(self.n_estimators):
+            best_acc = 0.0
             if train_idx > 0:
                 estimators[train_idx - 1] = self.estimators_[train_idx - 1]
             for epoch in range(epochs):
