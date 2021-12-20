@@ -111,6 +111,101 @@ def _parallel_fit_per_epoch(
     return estimator, optimizer
 
 
+@torch.no_grad()
+def _parallel_test_per_epoch(
+    train_loader,
+    estimator,
+    criterion,
+    idx,
+    epoch,
+    device,
+    logger,
+    aux_dis_lambda
+):
+    """
+    Private function used to fit base estimators in parallel.
+
+    WARNING: Parallelization when fitting large base estimators may cause
+    out-of-memory error.
+    """
+
+    Batch_time = AverageMeter('batch_time', ':6.3f')
+    Data_time = AverageMeter('Data time', ':6.3f')
+    Train_loss = AverageMeter('Train_loss', ':6.3f')
+    Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
+    Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
+    Loss_cls_ens = AverageMeter('Loss_cls_ens', ':6.3f')
+    Loss_dis = AverageMeter('Loss_dis', ':6.3f')
+    Acc1 = AverageMeter('Acc1@1', ':6.2f')
+    Acc2 = AverageMeter('Acc2@1', ':6.2f')
+    Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    Acc_same = AverageMeter('Acc_same@1', ':6.2f')
+
+    Exit_rate = AverageMeter('Exit_rate@1', ':6.2f')
+    Acc_ens_sf = AverageMeter('Acc_ens_sf@1', ':6.2f')
+    progress = ProgressMeter(
+        len(train_loader),
+        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Exit_rate, Acc_same, Acc1, Acc2, Acc_ens, Acc_ens_sf],
+        prefix=f"Epoch: [{epoch}] Ens:[{idx}]",
+    logger = logger)
+
+    end = time.time()
+    for batch_idx, elem in enumerate(train_loader):
+        Data_time.update(time.time() - end)
+
+        data, target = io.split_data_target(elem, device)
+        batch_size = target.size(0)
+
+        cls1, cls2 = estimator(*data)
+        ens = (cls1 + cls2) / 2
+        ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
+
+        acc_1 = accuracy(cls1, target)
+        acc_2 = accuracy(cls2, target)
+        acc_ens = accuracy(ens, target)
+        acc_ens_sf = accuracy(ens_sf, target)
+        _, pred_1 = cls1.topk(1, 1, True, True)
+        _, pred_2 = cls2.topk(1, 1, True, True)
+        _, pred_ens = ens.topk(1, 1, True, True)
+        exit_mask = (pred_1 == pred_2).view(-1)
+        exit_rate = torch.sum(exit_mask) / batch_size * 100
+        acc_same  = accuracy(ens[exit_mask], target[exit_mask]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
+
+        loss_cls_1 = criterion(cls1, target)
+        loss_cls_2 = criterion(cls2, target)
+        loss_cls_ens = criterion(ens, target)
+        dis_criterion = torch.nn.L1Loss(reduce=False)
+
+        loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
+
+        cls_loss = (loss_cls_1 + loss_cls_2) / 2
+        loss = torch.mean(loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss) - torch.mean(
+            loss_dis * (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
+                        torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach()))) * aux_dis_lambda
+        loss_cls_1 = torch.mean(loss_cls_1)
+        loss_cls_2 = torch.mean(loss_cls_2)
+        loss_cls_ens = torch.mean(loss_cls_ens)
+        loss_dis = torch.mean(loss_dis)
+
+        Train_loss.update(loss.item(), batch_size)
+        Loss_cls_1.update(loss_cls_1.item(), batch_size)
+        Loss_cls_2.update(loss_cls_2.item(), batch_size)
+        Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
+
+        Loss_dis.update(loss_dis.item(), batch_size)
+
+        Exit_rate.update(exit_rate.item(), batch_size)
+
+        Acc1.update(acc_1[0].item(), batch_size)
+        Acc2.update(acc_2[0].item(), batch_size)
+        Acc_same.update(acc_same[0].item(), batch_size)
+        Acc_ens.update(acc_ens[0].item(), batch_size)
+        Acc_ens_sf.update(acc_ens_sf[0].item(), batch_size)
+        Batch_time.update(time.time() - end)
+    logger.info(progress.display_avg())
+
+    return ens
+
 @torchensemble_model_doc(
     """Implementation on the VotingClassifier.""", "model"
 )
@@ -157,6 +252,28 @@ class VotingClassifier(BaseClassifier):
     @torchensemble_model_doc(
         """Implementation on the training stage of VotingClassifier.""", "fit"
     )
+    # Internal helper function on pesudo forward
+    def _forward(self, estimators, *x):
+        outputs = []
+        outputs_sf = []
+        for idx, estimator in enumerate(estimators):
+
+            cls1, cls2 = estimator(*x)
+            ens = (cls1 + cls2) / 2
+            ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
+            _, pred_1 = cls1.topk(1, 1, True, True)
+            _, pred_2 = cls2.topk(1, 1, True, True)
+            ret = F.softmax(ens, dim=1)
+            if len(outputs) > 0:
+                ret[mask] = outputs[-1][mask]
+                ens_sf[mask] = outputs_sf[-1][mask]
+            outputs.append(ret)
+            outputs_sf.append(ens_sf)
+            mask = pred_1.view(-1) == pred_2.view(-1)
+        proba = op.average(outputs)
+        proba_sf = op.average(outputs_sf)
+
+        return proba, proba_sf
     def fit(
         self,
         train_loader,
@@ -195,20 +312,45 @@ class VotingClassifier(BaseClassifier):
 
         # Utils
         best_acc = 0.0
-
-        # Internal helper function on pesudo forward
-        def _forward(estimators, *x):
+        def _forward_ex(estimators, *x):
             outputs = []
+            outputs_sf = []
             for idx, estimator in enumerate(estimators):
 
                 cls1, cls2 = estimator(*x)
                 ens = (cls1 + cls2) / 2
+                ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
+                _, pred_1 = cls1.topk(1, 1, True, True)
+                _, pred_2 = cls2.topk(1, 1, True, True)
+                ret = F.softmax(ens, dim=1)
+                if len(outputs) > 0:
+                    ret[mask] = outputs[-1][mask]
+                    ens_sf[mask] = outputs_sf[-1][mask]
+                outputs.append(ret)
+                outputs_sf.append(ens_sf)
+                mask = pred_1.view(-1) == pred_2.view(-1)
+            proba = op.average(outputs)
+            proba_sf = op.average(outputs_sf)
+
+            return proba, proba_sf
+        # Internal helper function on pesudo forward
+        def _forward(estimators, *x):
+            outputs = []
+            outputs_sf = []
+            for idx, estimator in enumerate(estimators):
+
+                cls1, cls2 = estimator(*x)
+                ens = (cls1 + cls2) / 2
+                ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
+
                 ret = F.softmax(ens, dim=1)
                 outputs.append(ret)
+                outputs_sf.append(ens_sf)
 
             proba = op.average(outputs)
+            proba_sf = op.average(outputs_sf)
 
-            return proba
+            return proba, proba_sf
         # Maintain a pool of workers
         with Parallel(n_jobs=self.n_jobs) as parallel:
 
@@ -256,12 +398,23 @@ class VotingClassifier(BaseClassifier):
                     with torch.no_grad():
                         correct = 0
                         total = 0
-
+                        # for train_idx in range(self.n_estimators):
+                        #     _parallel_test_per_epoch(test_loader,
+                        #                              estimators[train_idx],
+                        #                              self._criterion,
+                        #                              train_idx,
+                        #                              epoch,
+                        #                              self.device,
+                        #                              self.logger,
+                        #                              aux_dis_lambda
+                        #                              )
+                        train_idx = 0
                         for _, elem in enumerate(test_loader):
                             data, target = io.split_data_target(
                                 elem, self.device
                             )
-                            output = _forward(estimators, *data)
+                            output, output_sf = _forward(estimators[:train_idx + 1], *data)
+                            output_ex, output_ex_sf = _forward_ex(estimators[:train_idx + 1], *data)
                             _, predicted = torch.max(output.data, 1)
                             correct += (predicted == target).sum().item()
                             total += target.size(0)

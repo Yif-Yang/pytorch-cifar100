@@ -75,7 +75,8 @@ def set_logger(
         tb_log_path = os.path.join(
             log_path, rq + "_tb_logger"
         )
-        os.mkdir(tb_log_path)
+        if not os.path.exists(tb_log_path):
+            os.mkdir(tb_log_path)
         init_tb_logger(log_dir=tb_log_path)
 
     return _logger
