@@ -112,7 +112,7 @@ def _parallel_fit_per_epoch(
             exit_mask_before = (pred_old_1 == pred_old_2).view(-1)
             loss_weight = pred_1.new_ones(target.size()) * 1.0 - hm_value
             loss_weight[exit_mask_before] = 1.0
-            # loss_weight = loss_weight * batch_size / torch.sum(loss_weight)
+            loss_weight = loss_weight * batch_size / torch.sum(loss_weight)
             loss = torch.mean(loss_weight * loss)
         else:
             loss = torch.mean(loss)
@@ -421,7 +421,7 @@ class VotingClassifier(BaseClassifier):
         for train_idx in range(self.n_estimators):
             best_acc = 0.0
             if train_idx > 0:
-                estimators[train_idx - 1] = self.estimators_[train_idx - 1]
+                estimators[train_idx - 1].load_state_dict(self.estimators_dic[train_idx - 1])
             for epoch in range(epochs):
                 self.train()
 
@@ -491,9 +491,8 @@ class VotingClassifier(BaseClassifier):
                         print(progress.display_avg())
                         if acc > best_acc:
                             best_acc = acc
-                            self.estimators_ = nn.ModuleList()
-                            import copy
-                            self.estimators_.extend([copy.deepcopy(e) for e in estimators])
+                            self.estimators_dic = [[] for _ in range(len(self.n_estimators))]
+                            self.estimators_dic[train_idx] = estimators[train_idx].state_dict()
                             if save_model and train_idx + 1 == self.n_estimators:
                                 io.save(self, save_dir, self.logger)
 
