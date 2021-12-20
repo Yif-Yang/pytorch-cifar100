@@ -506,15 +506,15 @@ class VotingClassifier(BaseClassifier):
                                 f"voting/Validation_Acc_{train_idx}", acc, epoch
                             )
 
-                    # Update the scheduler
-                    with warnings.catch_warnings():
+                # Update the scheduler
+                with warnings.catch_warnings():
 
-                        # UserWarning raised by PyTorch is ignored because
-                        # scheduler does not have a real effect on the optimizer.
-                        warnings.simplefilter("ignore", UserWarning)
+                    # UserWarning raised by PyTorch is ignored because
+                    # scheduler does not have a real effect on the optimizer.
+                    warnings.simplefilter("ignore", UserWarning)
 
-                        if self.use_scheduler_:
-                            scheduler_.step()
+                    if self.use_scheduler_:
+                        scheduler_.step()
 
         self.estimators_ = nn.ModuleList()
         self.estimators_.extend(estimators)
