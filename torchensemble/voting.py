@@ -491,7 +491,7 @@ class VotingClassifier(BaseClassifier):
                         print(progress.display_avg())
                         if acc > best_acc:
                             best_acc = acc
-                            self.estimators_dic = [[] for _ in range(len(self.n_estimators))]
+                            self.estimators_dic = [[] for _ in range(self.n_estimators)]
                             self.estimators_dic[train_idx] = estimators[train_idx].state_dict()
                             if save_model and train_idx + 1 == self.n_estimators:
                                 io.save(self, save_dir, self.logger)
