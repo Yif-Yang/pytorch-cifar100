@@ -98,28 +98,11 @@ def _parallel_fit_per_epoch(
         loss_cls_1 = criterion(cls1, target)
         loss_cls_2 = criterion(cls2, target)
         loss_cls_ens = criterion(ens, target)
-        dis_criterion = torch.nn.L1Loss(reduce=False)
+        dis_criterion = torch.nn.L1Loss()
 
-        loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
+        loss_dis = dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1))
 
-        cls_loss = (loss_cls_1 + loss_cls_2) / 2
-        loss = cls_loss - loss_dis * aux_dis_lambda
-        if idx > 0:
-            estimator_post = estimator[idx - 1]
-            cls1_before, cls2_before = estimator_post(*data)
-            _, pred_old_1 = cls1_before.detach().topk(1, 1, True, True)
-            _, pred_old_2 = cls2_before.detach().topk(1, 1, True, True)
-            exit_mask_before = (pred_old_1 == pred_old_2).view(-1)
-            loss_weight = pred_1.new_ones(target.size()) * 1.0 - hm_value
-            loss_weight[exit_mask_before] = 1.0
-            loss_weight = loss_weight * batch_size / torch.sum(loss_weight)
-            loss = torch.mean(loss_weight * loss)
-        else:
-            loss = torch.mean(loss)
-        loss_cls_1 = torch.mean(loss_cls_1)
-        loss_cls_2 = torch.mean(loss_cls_2)
-        loss_cls_ens = torch.mean(loss_cls_ens)
-        loss_dis = torch.mean(loss_dis)
+        loss = (loss_cls_1 + loss_cls_2) / 2 - loss_dis * aux_dis_lambda
 
         loss.backward()
         optimizer.step()
@@ -364,10 +347,7 @@ class VotingClassifier(BaseClassifier):
                 )
             )
 
-        if self.use_scheduler_:
-            scheduler_ = set_module.set_scheduler(
-                optimizers[0], self.scheduler_name, **self.scheduler_args
-            )
+
 
         # Check the training criterion
         if not hasattr(self, "_criterion"):
@@ -419,6 +399,10 @@ class VotingClassifier(BaseClassifier):
 
         # Training loop
         for train_idx in range(self.n_estimators):
+            if self.use_scheduler_:
+                scheduler_ = set_module.set_scheduler(
+                    optimizers[0], self.scheduler_name, **self.scheduler_args
+                )
             best_acc = 0.0
             if train_idx > 0:
                 estimators[train_idx - 1].load_state_dict(self.estimators_dic[train_idx - 1])
@@ -478,15 +462,15 @@ class VotingClassifier(BaseClassifier):
                             )
                             batch_size = target.size(0)
                             output, output_sf = _forward(estimators[:train_idx + 1], *data)
-                            output_ex, output_ex_sf = _forward_ex(estimators[:train_idx + 1], *data)
+                            # output_ex, output_ex_sf = _forward_ex(estimators[:train_idx + 1], *data)
                             acc_1, _ = accuracy(output, target)
                             acc_sf, _ = accuracy(output_sf, target)
-                            acc1_ex, _ = accuracy(output_ex, target)
-                            acc1_ex_sf, _ = accuracy(output_ex_sf, target)
+                            # acc1_ex, _ = accuracy(output_ex, target)
+                            # acc1_ex_sf, _ = accuracy(output_ex_sf, target)
                             Acc1.update(acc_1[0].item(), batch_size)
                             Acc1_sf.update(acc_sf[0].item(), batch_size)
-                            Acc1_ex.update(acc1_ex[0].item(), batch_size)
-                            Acc1_ex_sf.update(acc1_ex_sf[0].item(), batch_size)
+                            # Acc1_ex.update(acc1_ex[0].item(), batch_size)
+                            # Acc1_ex_sf.update(acc1_ex_sf[0].item(), batch_size)
                         acc = Acc1.avg
                         print(progress.display_avg())
                         if acc > best_acc:
