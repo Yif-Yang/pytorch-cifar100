@@ -454,15 +454,15 @@ class VotingClassifier(BaseClassifier):
                 if test_loader:
                     with torch.no_grad():
                         self.eval()
-                        _parallel_test_per_epoch(test_loader,
-                                                 estimators[train_idx],
-                                                 self._criterion,
-                                                 train_idx,
-                                                 epoch,
-                                                 self.device,
-                                                 self.logger,
-                                                 aux_dis_lambda
-                                                 )
+                        # _parallel_test_per_epoch(test_loader,
+                        #                          estimators[train_idx],
+                        #                          self._criterion,
+                        #                          train_idx,
+                        #                          epoch,
+                        #                          self.device,
+                        #                          self.logger,
+                        #                          aux_dis_lambda
+                        #                          )
                         Acc1 = AverageMeter('Acc1@1', ':6.2f')
                         Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
                         Acc1_ex = AverageMeter('Acc1_ex@1', ':6.2f')
