@@ -477,6 +477,8 @@ class VotingClassifier(BaseClassifier):
                             best_acc = acc
                             self.estimators_dic = [[] for _ in range(self.n_estimators)]
                             self.estimators_dic[train_idx] = estimators[train_idx].state_dict()
+                            self.estimators_ = nn.ModuleList()
+                            self.estimators_.extend(estimators)
                             if save_model and train_idx + 1 == self.n_estimators:
                                 io.save(self, save_dir, self.logger)
 
