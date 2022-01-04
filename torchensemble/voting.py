@@ -438,15 +438,15 @@ class VotingClassifier(BaseClassifier):
                 if test_loader:
                     with torch.no_grad():
                         self.eval()
-                        # _parallel_test_per_epoch(test_loader,
-                        #                          estimators[train_idx],
-                        #                          self._criterion,
-                        #                          train_idx,
-                        #                          epoch,
-                        #                          self.device,
-                        #                          self.logger,
-                        #                          aux_dis_lambda
-                        #                          )
+                        _parallel_test_per_epoch(test_loader,
+                                                 estimators[train_idx],
+                                                 self._criterion,
+                                                 train_idx,
+                                                 epoch,
+                                                 self.device,
+                                                 self.logger,
+                                                 aux_dis_lambda
+                                                 )
                         Acc1 = AverageMeter('Acc1@1', ':6.2f')
                         Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
                         Acc1_ex = AverageMeter('Acc1_ex@1', ':6.2f')
@@ -461,7 +461,8 @@ class VotingClassifier(BaseClassifier):
                                 elem, self.device
                             )
                             batch_size = target.size(0)
-                            output, output_sf = _forward(estimators[:train_idx + 1], *data)
+                            # output, output_sf = _forward(estimators[:train_idx + 1], *data)
+                            output, output_sf = _forward(estimators[train_idx:train_idx + 1], *data)
                             # output_ex, output_ex_sf = _forward_ex(estimators[:train_idx + 1], *data)
                             acc_1, _ = accuracy(output, target)
                             acc_sf, _ = accuracy(output_sf, target)
