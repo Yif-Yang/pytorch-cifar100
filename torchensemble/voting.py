@@ -401,7 +401,7 @@ class VotingClassifier(BaseClassifier):
         for train_idx in range(self.n_estimators):
             if self.use_scheduler_:
                 scheduler_ = set_module.set_scheduler(
-                    optimizers[0], self.scheduler_name, **self.scheduler_args
+                    optimizers[train_idx], self.scheduler_name, **self.scheduler_args
                 )
             best_acc = 0.0
             if train_idx > 0:
@@ -462,7 +462,7 @@ class VotingClassifier(BaseClassifier):
                             )
                             batch_size = target.size(0)
                             # output, output_sf = _forward(estimators[:train_idx + 1], *data)
-                            output, output_sf = _forward(estimators[train_idx:train_idx + 1], *data)
+                            output, output_sf = _forward(estimators[:train_idx + 1], *data)
                             # output_ex, output_ex_sf = _forward_ex(estimators[:train_idx + 1], *data)
                             acc_1, _ = accuracy(output, target)
                             acc_sf, _ = accuracy(output_sf, target)
