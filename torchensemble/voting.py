@@ -385,13 +385,17 @@ class VotingClassifier(BaseClassifier):
                 ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2
                 _, pred_1 = cls1.topk(1, 1, True, True)
                 _, pred_2 = cls2.topk(1, 1, True, True)
+
                 ret = F.softmax(ens, dim=1)
-                if len(outputs) > 0:
+                if idx > 0:
                     ret[mask] = outputs[-1][mask]
                     ens_sf[mask] = outputs_sf[-1][mask]
                 outputs.append(ret)
                 outputs_sf.append(ens_sf)
-                mask = pred_1.view(-1) == pred_2.view(-1)
+                if idx == 0:
+                    mask = pred_1.view(-1) == pred_2.view(-1)
+                else:
+                    mask += pred_1.view(-1) == pred_2.view(-1)
             proba = op.average(outputs)
             proba_sf = op.average(outputs_sf)
 
