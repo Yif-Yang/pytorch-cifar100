@@ -21,7 +21,9 @@ from utils import WarmUpLR, accuracy, AverageMeter, ProgressMeter
 import time
 __all__ = ["VotingClassifier", "VotingRegressor"]
 
-cls_cls_map = {}
+
+look_up_map = [[] for _ in range(50001)]
+
 def _parallel_fit_per_epoch(
     train_loader,
     estimator,
@@ -32,7 +34,6 @@ def _parallel_fit_per_epoch(
     epoch,
     log_interval,
     device,
-    is_classification,
     logger,
     aux_dis_lambda,
     hm_value
@@ -107,11 +108,7 @@ def _parallel_fit_per_epoch(
                     torch.max(cls_loss.detach()) - cls_loss.detach()) / (
                        torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach())) * aux_dis_lambda
         if idx > 0:
-            estimator_post = estimator[idx - 1]
-            cls1_before, cls2_before = estimator_post(*data)
-            _, pred_old_1 = cls1_before.detach().topk(1, 1, True, True)
-            _, pred_old_2 = cls2_before.detach().topk(1, 1, True, True)
-            exit_mask_before = (pred_old_1 == pred_old_2).view(-1)
+            exit_mask_before, ens = look_up(data_id)
             loss_weight = pred_1.new_ones(target.size()) * 1.0 - hm_value
             loss_weight[exit_mask_before] = 1.0
             # loss_weight = loss_weight * batch_size / torch.sum(loss_weight)
@@ -247,6 +244,59 @@ def _parallel_test_per_epoch(
 
     return ens
 
+@torch.no_grad()
+def build_map_for_training(
+        train_loader,
+        estimator,
+        idx,
+        device,
+        logger,
+):
+    """
+    Private function used to fit base estimators in parallel.
+
+    WARNING: Parallelization when fitting large base estimators may cause
+    out-of-memory error.
+    """
+    Batch_time = AverageMeter('batch_time', ':6.3f')
+    Data_time = AverageMeter('Data time', ':6.3f')
+    progress = ProgressMeter(
+        len(train_loader),
+        [Batch_time, Data_time],
+        prefix=f"Ens:[{idx}]",
+        logger = logger)
+    end = time.time()
+    for batch_idx, elem in enumerate(train_loader):
+        Data_time.update(time.time() - end)
+        data_id, data, target = io.split_data_target(elem, device)
+
+        cls1, cls2 = estimator(*data)
+        ens = (cls1 + cls2) / 2
+
+        _, pred_1 = cls1.topk(1, 1, True, True)
+        _, pred_2 = cls2.topk(1, 1, True, True)
+        _, pred_ens = ens.topk(1, 1, True, True)
+        exit_mask = (pred_1 == pred_2).view(-1)
+        for id, _mask, _ens in zip(data_id, exit_mask, ens):
+            look_up_map[id].append((_mask, _ens))
+
+        Batch_time.update(time.time() - end)
+    logger.info(progress.display_avg())
+
+def look_up(indexs):
+    exit_mask, ens = [], []
+    for id in indexs:
+        ens_now = []
+        for idx, (_exit, _ens) in enumerate(look_up_map[id]):
+            ens_now.append(_ens)
+            if idx == 0:
+                exit_now = _exit
+            else:
+                exit_now += _exit
+        exit_mask.append(exit_now)
+        ens.append(ens_now)
+    exit_mask = _exit.new_tensor(exit_mask)
+    return exit_mask, ens
 @torchensemble_model_doc(
     """Implementation on the VotingClassifier.""", "model"
 )
@@ -451,7 +501,6 @@ class VotingClassifier(BaseClassifier):
                     epoch,
                     log_interval,
                     self.device,
-                    True,
                     self.logger,
                     aux_dis_lambda,
                     hm_value
@@ -470,6 +519,8 @@ class VotingClassifier(BaseClassifier):
                                                  self.logger,
                                                  aux_dis_lambda
                                                  )
+                        build_map_for_training(train_loader, estimators[train_idx], train_idx,self.device,
+                                               self.logger )
                         Acc1 = AverageMeter('Acc1@1', ':6.2f')
                         Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
                         Acc1_ex = AverageMeter('Acc1_ex@1', ':6.2f')
