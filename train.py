@@ -82,7 +82,7 @@ if __name__ == '__main__':
     else:
         torch.backends.cudnn.benchmark = True
         print('not set seed')
-    loss_function = nn.CrossEntropyLoss()
+    loss_function = nn.CrossEntropyLoss(reduce=False)
     from models.resnet_new import ResNet, BasicBlock
     net = VotingClassifier(
         estimator=ResNet, n_estimators=args.n_estimators, estimator_args={"block": BasicBlock, "num_blocks": [2, 2, 2, 2], 'num_classes':100}, cuda=True, n_jobs=args.n_jobs
