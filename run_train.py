@@ -3,7 +3,7 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument('-net', type=str, default='resnet18_new', help='net type')
 parser.add_argument('-work_dir', type=str, default='./work_dir', help='dir name')
-parser.add_argument('-exp_name', type=str, default='plain_patience_fix_semple_debug', help='exp_name ')
+parser.add_argument('-exp_name', type=str, default='patience_loss_test', help='exp_name ')
 parser.add_argument('-runs', type=str, default='1', help='exp_name ')
 parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_yif_resrchvc4data/output/ensemble/cifar100',
                     help='dir name')
