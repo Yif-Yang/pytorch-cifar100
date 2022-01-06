@@ -35,8 +35,8 @@ cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       f"-work_dir={os.path.join(args.work_dir, exp_name)} " \
       f"-aux_dis_lambda={args.aux_dis_lambda} " \
       f"-hm_value={args.hm_value} " \
-      f"-add_cls_w={args.add_cls_w} " \
-      f"-add_dis_w={args.add_dis_w} " \
+      f"{f'-add_cls_w ' if args.add_cls_w else ''}" \
+      f"{f'-add_dis_w ' if args.add_dis_w else ''}" \
       f"-blob_dir={args.blob_dir} " \
       f"-seed={args.seed} " \
       f"> {exp_name}.out &"
