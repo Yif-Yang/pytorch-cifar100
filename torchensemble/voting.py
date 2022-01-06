@@ -36,7 +36,9 @@ def _parallel_fit_per_epoch(
     device,
     logger,
     aux_dis_lambda,
-    hm_value
+    hm_value,
+    add_dis_w,
+    add_cls_w,
 ):
     """
     Private function used to fit base estimators in parallel.
@@ -106,9 +108,9 @@ def _parallel_fit_per_epoch(
         cls_loss = (loss_cls_1 + loss_cls_2) / 2
 
         dis_w = (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
-        torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach()))
+        torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach())) if add_dis_w else 1
 
-        cls_w = loss_dis.detach() / torch.mean(loss_dis.detach())
+        cls_w = loss_dis.detach() / torch.mean(loss_dis.detach()) if add_cls_w else 1
 
         loss = (cls_w if aux_dis_lambda > 0 else 1) * cls_loss - loss_dis * dis_w * aux_dis_lambda
 
@@ -402,7 +404,9 @@ class VotingClassifier(BaseClassifier):
         save_model=True,
         save_dir=None,
         aux_dis_lambda=0,
-        hm_value=5
+        hm_value=5,
+        add_dis_w=False,
+        add_cls_w=False,
     ):
 
         self._validate_parameters(epochs, log_interval)
@@ -508,7 +512,9 @@ class VotingClassifier(BaseClassifier):
                     self.device,
                     self.logger,
                     aux_dis_lambda,
-                    hm_value
+                    hm_value,
+                    add_dis_w,
+                    add_cls_w,
                 )
 
                 # Validation

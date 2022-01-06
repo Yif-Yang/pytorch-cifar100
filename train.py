@@ -68,6 +68,8 @@ if __name__ == '__main__':
     parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random seed (default: 1)')
     parser.add_argument('-n_estimators', type=int, default=3, metavar='S', help='random seed (default: 1)')
     parser.add_argument('-n_jobs', type=int, default=1, metavar='S', help='n_jobs ')
+    parser.add_argument('-add_cls_w', action='store_true', default=False, help='add_cls_w training')
+    parser.add_argument('-add_dis_w', action='store_true', default=False, help='add_dis_w training')
 
     args = parser.parse_args()
     if args.seed > -1:
@@ -127,7 +129,9 @@ if __name__ == '__main__':
         save_model=True,
         save_dir=checkpoint_path,
         aux_dis_lambda=args.aux_dis_lambda,
-        hm_value=args.hm_value
+        hm_value=args.hm_value,
+        add_dis_w=args.add_dis_w,
+        add_cls_w=args.add_cls_w,
         )
     toc = time.time()
     training_time = toc - tic
