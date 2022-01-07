@@ -530,8 +530,7 @@ class VotingClassifier(BaseClassifier):
                                                  self.logger,
                                                  aux_dis_lambda
                                                  )
-                        build_map_for_training(train_loader, estimators[train_idx], train_idx,self.device,
-                                               self.logger )
+
                         Acc1 = AverageMeter('Acc1@1', ':6.2f')
                         Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
                         Acc1_ex = AverageMeter('Acc1_ex@1', ':6.2f')
@@ -586,7 +585,8 @@ class VotingClassifier(BaseClassifier):
 
                     if self.use_scheduler_:
                         scheduler_.step()
-
+            build_map_for_training(train_loader, estimators[train_idx], train_idx,self.device,
+                                   self.logger )
         self.estimators_ = nn.ModuleList()
         self.estimators_.extend(estimators)
         if save_model and not test_loader:
