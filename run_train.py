@@ -16,7 +16,7 @@ parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random see
 parser.add_argument('-nesterov', action='store_false', default=True, help='nesterov training')
 parser.add_argument('-n_estimators', type=int, default=3, metavar='S', help='random seed (default: 1)')
 parser.add_argument('-aux_dis_lambda', type=float, default=0, help='aux_dis_lambda loss rate')
-parser.add_argument('-hm_value', type=float, default=2, help='hm_value loss rate')
+parser.add_argument('-hm_value', type=float, default=0, help='hm_value loss rate')
 parser.add_argument('-add_cls_w', action='store_true', default=False, help='add_cls_w training')
 parser.add_argument('-add_dis_w', action='store_true', default=False, help='add_dis_w training')
 
