@@ -20,6 +20,7 @@ from .utils import operator as op
 from utils import WarmUpLR, accuracy, AverageMeter, ProgressMeter
 import time
 __all__ = ["VotingClassifier", "VotingRegressor"]
+dis_criterion = torch.nn.L1Loss(reduce=False)
 
 
 look_up_map = [[] for _ in range(50001)]
@@ -101,7 +102,6 @@ def _parallel_fit_per_epoch(
         loss_cls_1 = criterion(cls1, target)
         loss_cls_2 = criterion(cls2, target)
         loss_cls_ens = criterion(ens, target)
-        dis_criterion = torch.nn.L1Loss(reduce=False)
 
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
 
@@ -116,8 +116,9 @@ def _parallel_fit_per_epoch(
 
         if idx > 0:
             exit_mask_before, ens = look_up(data_id)
-            loss_weight = pred_1.new_ones(target.size()) * 1.0 - hm_value
-            loss_weight[exit_mask_before] = 1.0
+            loss_weight = F.softmax(exit_mask_before, 0) * batch_size
+            # loss_weight = pred_1.new_ones(target.size()) * 1.0 - hm_value
+            # loss_weight[exit_mask_before] = 1.0
             # loss_weight = loss_weight * batch_size / torch.sum(loss_weight)
             loss = torch.mean(loss_weight * loss)
         else:
@@ -219,7 +220,6 @@ def _parallel_test_per_epoch(
         loss_cls_1 = criterion(cls1, target)
         loss_cls_2 = criterion(cls2, target)
         loss_cls_ens = criterion(ens, target)
-        dis_criterion = torch.nn.L1Loss(reduce=False)
 
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
 
@@ -283,7 +283,9 @@ def build_map_for_training(
         _, pred_1 = cls1.topk(1, 1, True, True)
         _, pred_2 = cls2.topk(1, 1, True, True)
         _, pred_ens = ens.topk(1, 1, True, True)
-        exit_mask = (pred_1 == pred_2).view(-1)
+        # exit_mask = (pred_1 == pred_2).view(-1)
+        exit_mask = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
+        # exit_mask = F.softmax()
         for id, _mask, _ens in zip(data_id, exit_mask, ens):
             look_up_map[id].append((_mask, _ens))
 
