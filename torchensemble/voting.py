@@ -151,9 +151,11 @@ def _parallel_fit_per_epoch(
         acc_ens_sf, correct_ens_sf = accuracy(ens_sf, target)
         _, pred_1 = cls1.topk(1, 1, True, True)
         _, pred_2 = cls2.topk(1, 1, True, True)
-        _, pred_ens = ens.topk(1, 1, True, True)
-        exit_mask = (pred_1 == pred_2).view(-1)
+        _, pred_aux = cls_aux.topk(1, 1, True, True)
+        _, pred_distill = distill_out.topk(1, 1, True, True)
 
+        exit_mask = pred_1.view(-1) == pred_2.view(-1)
+        exit_mask = exit_mask.__and__(pred_aux.view(-1) == pred_distill.view(-1))
         exit_rate = torch.sum(exit_mask) / batch_size * 100
         acc_same, _ = accuracy(ens[exit_mask], target[exit_mask]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
 
@@ -294,9 +296,11 @@ def _parallel_test_per_epoch(
         acc_ens_sf, correct_ens_sf = accuracy(ens_sf, target)
         _, pred_1 = cls1.topk(1, 1, True, True)
         _, pred_2 = cls2.topk(1, 1, True, True)
-        _, pred_ens = ens.topk(1, 1, True, True)
-        exit_mask = (pred_1 == pred_2).view(-1)
+        _, pred_aux = cls_aux.topk(1, 1, True, True)
+        _, pred_distill = distill_out.topk(1, 1, True, True)
 
+        exit_mask = pred_1.view(-1) == pred_2.view(-1)
+        exit_mask = exit_mask.__and__(pred_aux.view(-1) == pred_distill.view(-1))
         exit_rate = torch.sum(exit_mask) / batch_size * 100
         acc_same, _ = accuracy(ens[exit_mask], target[exit_mask]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
 
@@ -568,6 +572,7 @@ class VotingClassifier(BaseClassifier):
                 ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
                 _, pred_1 = cls1.topk(1, 1, True, True)
                 _, pred_2 = cls2.topk(1, 1, True, True)
+                _, pred_aux = cls_aux.topk(1, 1, True, True)
                 _, pred_distill = distill_out.topk(1, 1, True, True)
 
                 ret = F.softmax(ens, dim=1)
@@ -577,7 +582,7 @@ class VotingClassifier(BaseClassifier):
                 outputs.append(ret)
                 outputs_sf.append(ens_sf)
                 mask_now = pred_1.view(-1) == pred_2.view(-1)
-                mask_now = mask_now == pred_distill.view(-1)
+                mask_now = mask_now.__and__(pred_aux.view(-1) == pred_distill.view(-1))
                 if idx == 0:
                     mask = mask_now
                 else:
