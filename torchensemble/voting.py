@@ -62,20 +62,21 @@ class DistillationLoss(torch.nn.Module):
             T = self.tau
             # taken from https://github.com/peterliht/knowledge-distillation-pytorch/blob/master/model/net.py#L100
             # with slight modifications
-            distillation_loss = F.kl_div(
+            distillation_loss = torch.mean(F.kl_div(
                 F.log_softmax(outputs_kd / T, dim=1),
-                #We provide the teacher's targets in log probability because we use log_target=True
-                #(as recommended in pytorch https://github.com/pytorch/pytorch/blob/9324181d0ac7b4f7949a574dbc3e8be30abe7041/torch/nn/functional.py#L2719)
-                #but it is possible to give just the probabilities and set log_target=False. In our experiments we tried both.
+                # We provide the teacher's targets in log probability because we use log_target=True
+                # (as recommended in pytorch https://github.com/pytorch/pytorch/blob/9324181d0ac7b4f7949a574dbc3e8be30abe7041/torch/nn/functional.py#L2719)
+                # but it is possible to give just the probabilities and set log_target=False. In our experiments we tried both.
                 F.log_softmax(teacher_outputs / T, dim=1),
-                reduction='sum',
+                reduction='none',
                 log_target=True
-            ) * (T * T) / outputs_kd.numel()
-            #We divide by outputs_kd.numel() to have the legacy PyTorch behavior.
-            #But we also experiments output_kd.size(0)
-            #see issue 61(https://github.com/facebookresearch/deit/issues/61) for more details
+            ) * (T * T), dim=-1)
+            # We divide by outputs_kd.numel() to have the legacy PyTorch behavior.
+            # But we also experiments output_kd.size(0)
+            # see issue 61(https://github.com/facebookresearch/deit/issues/61) for more details
         elif self.distillation_type == 'hard':
-            distillation_loss = F.cross_entropy(outputs_kd, teacher_outputs.argmax(dim=1))
+            distillation_loss = torch.mean(F.cross_entropy(outputs_kd, teacher_outputs.argmax(dim=1), reduction='none'),
+                                           dim=-1)
 
         return distillation_loss
 
@@ -140,7 +141,7 @@ def _parallel_fit_per_epoch(
         optimizer.zero_grad()
         cls1, cls2, distill_out = estimator_now(*data)
         cls_aux = (cls1 + cls2) / 2
-        ens = (cls_aux + distill_out) / 2
+        ens = cls_aux * (1 - args.distillation_alpha) + distill_out * args.distillation_alpha
         ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
 
         acc_1, correct_1 = accuracy(cls1, target)
@@ -190,6 +191,7 @@ def _parallel_fit_per_epoch(
                args.distillation_type, args.distillation_tau
             )
             distillation_loss = distill_criterion(torch.mean(ens_old, dim=1), distill_out)
+            distillation_loss = torch.mean(loss_weight * distillation_loss)
 
         loss = loss * (1 - args.distillation_alpha) + distillation_loss * args.distillation_alpha
 
@@ -285,7 +287,7 @@ def _parallel_test_per_epoch(
 
         cls1, cls2, distill_out = estimator(*data)
         cls_aux = (cls1 + cls2) / 2
-        ens = (cls_aux + distill_out) / 2
+        ens = cls_aux * (1 - args.distillation_alpha) + distill_out * args.distillation_alpha
         ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
 
         acc_1, correct_1 = accuracy(cls1, target)
@@ -380,6 +382,7 @@ def build_map_for_training(
         idx,
         device,
         logger,
+        args
 ):
     """
     Private function used to fit base estimators in parallel.
@@ -392,7 +395,7 @@ def build_map_for_training(
     progress = ProgressMeter(
         len(train_loader),
         [Batch_time, Data_time],
-        prefix=f"Ens:[{idx}]",
+        prefix=f"Build Feat Map Ens:[{idx}]",
         logger = logger)
     end = time.time()
     for batch_idx, elem in enumerate(train_loader):
@@ -401,7 +404,7 @@ def build_map_for_training(
 
         cls1, cls2, distill_out = estimator(*data)
         cls_aux = (cls1 + cls2) / 2
-        ens = (cls_aux + distill_out) / 2
+        ens = cls_aux * (1 - args.distillation_alpha) + distill_out * args.distillation_alpha
 
         _, pred_1 = cls1.topk(1, 1, True, True)
         _, pred_2 = cls2.topk(1, 1, True, True)
@@ -440,6 +443,25 @@ class VotingClassifier(BaseClassifier):
         """Implementation on the data forwarding in VotingClassifier.""",
         "classifier_forward",
     )
+    def __init__(
+            self,
+            estimator,
+            n_estimators,
+            estimator_args=None,
+            cuda=True,
+            n_jobs=None,
+            logger=None,
+            args=None
+    ):
+        super(VotingClassifier, self).__init__(estimator,
+                                               n_estimators,
+                                               estimator_args,
+                                               cuda,
+                                               n_jobs,
+                                               logger,
+                                               )
+        self.args = args
+
     def forward(self, *x):
         # Average over class distributions from all base estimators.
         outputs = []
@@ -447,7 +469,7 @@ class VotingClassifier(BaseClassifier):
 
             cls1, cls2, distill_out = estimator(*x)
             cls_aux = (cls1 + cls2) / 2
-            ens = (cls_aux + distill_out) / 2
+            ens = cls_aux * (1 - self.args.distillation_alpha) + distill_out * self.args.distillation_alpha
             ret = F.softmax(ens, dim=1)
             outputs.append(ret)
 
@@ -510,8 +532,8 @@ class VotingClassifier(BaseClassifier):
 
             cls1, cls2, distill_out = estimator(*x)
             cls_aux = (cls1 + cls2) / 2
-            ens = (cls_aux + distill_out) / 2
-            ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
+            ens = cls_aux * (1 - self.args.distillation_alpha) + distill_out * self.args.distillation_alpha
+            ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 * (1 - self.args.distillation_alpha) + F.softmax(distill_out, 1) * self.args.distillation_alpha
             _, pred_1 = cls1.topk(1, 1, True, True)
             _, pred_2 = cls2.topk(1, 1, True, True)
             ret = F.softmax(ens, dim=1)
@@ -533,7 +555,6 @@ class VotingClassifier(BaseClassifier):
         test_loader=None,
         save_model=True,
         save_dir=None,
-        args=None,
     ):
 
         self._validate_parameters(epochs, log_interval)
@@ -568,8 +589,8 @@ class VotingClassifier(BaseClassifier):
 
                 cls1, cls2, distill_out = estimator(*x)
                 cls_aux = (cls1 + cls2) / 2
-                ens = (cls_aux + distill_out) / 2
-                ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
+                ens = cls_aux * (1 - self.args.distillation_alpha) + distill_out * self.args.distillation_alpha
+                ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 * (1 - self.args.distillation_alpha) + F.softmax(distill_out, 1) * self.args.distillation_alpha
                 _, pred_1 = cls1.topk(1, 1, True, True)
                 _, pred_2 = cls2.topk(1, 1, True, True)
                 _, pred_aux = cls_aux.topk(1, 1, True, True)
@@ -599,8 +620,8 @@ class VotingClassifier(BaseClassifier):
 
                 cls1, cls2, distill_out = estimator(*x)
                 cls_aux = (cls1 + cls2) / 2
-                ens = (cls_aux + distill_out) / 2
-                ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
+                ens = cls_aux * (1 - self.args.distillation_alpha) + distill_out * self.args.distillation_alpha
+                ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 * (1 - self.args.distillation_alpha) + F.softmax(distill_out, 1) * self.args.distillation_alpha
 
                 ret = F.softmax(ens, dim=1)
                 outputs.append(ret)
@@ -644,7 +665,7 @@ class VotingClassifier(BaseClassifier):
                     log_interval,
                     self.device,
                     self.logger,
-                    args
+                    self.args
                 )
 
                 # Validation
@@ -658,7 +679,7 @@ class VotingClassifier(BaseClassifier):
                                                  epoch,
                                                  self.device,
                                                  self.logger,
-                                                 args
+                                                 self.args
                                                  )
 
                         Acc1 = AverageMeter('Acc1@1', ':6.2f')
@@ -716,7 +737,7 @@ class VotingClassifier(BaseClassifier):
                     if self.use_scheduler_:
                         scheduler_.step()
             build_map_for_training(train_loader, estimators[train_idx], train_idx,self.device,
-                                   self.logger )
+                                   self.logger, self.args)
         self.estimators_ = nn.ModuleList()
         self.estimators_.extend(estimators)
         if save_model and not test_loader:
