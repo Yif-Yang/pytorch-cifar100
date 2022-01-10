@@ -73,6 +73,7 @@ if __name__ == '__main__':
     parser.add_argument('-distillation-alpha', default=0.5, type=float, help="")
     parser.add_argument('-distillation-tau', default=1.0, type=float, help="")
     parser.add_argument('-distillation-type', default='soft', choices=['none', 'soft', 'hard'], type=str, help="")
+    parser.add_argument('-div-tau', default=1.0, type=float, help="")
 
     args = parser.parse_args()
     if args.seed > -1:

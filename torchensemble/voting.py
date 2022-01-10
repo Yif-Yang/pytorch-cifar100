@@ -184,7 +184,7 @@ def _parallel_fit_per_epoch(
             distillation_loss = torch.mean(distillation_loss)
         else:
             exit_mask_before, ens_old = look_up(data_id)
-            loss_weight = F.softmax(exit_mask_before, 0) * batch_size
+            loss_weight = F.softmax(exit_mask_before / args.div_tau) * batch_size
             loss = torch.mean(loss_weight * loss)
 
             distill_criterion = DistillationLoss(
