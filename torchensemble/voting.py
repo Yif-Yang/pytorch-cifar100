@@ -54,6 +54,7 @@ class DistillationLoss(torch.nn.Module):
                 in the first position and the distillation predictions as the second output
             labels: the labels for the base criterion
         """
+        teacher_outputs = teacher_outputs.detach()
         if self.distillation_type == 'none':
             return 0
 
@@ -89,7 +90,6 @@ def _parallel_fit_per_epoch(
     log_interval,
     device,
     logger,
-    aux_dis_lambda,
     args
 ):
 
@@ -130,7 +130,6 @@ def _parallel_fit_per_epoch(
         [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Loss_distill, Exit_rate, Acc_same, Acc1, Acc2, Acc_aux_ens, Acc_distill, Acc_ens, Acc_ens_sf],
         prefix=f"Epoch: [{epoch}] Ens:[{idx}] Lr:[{optimizer.state_dict()['param_groups'][0]['lr']:.5f}]",
     logger = logger)
-    #TODO(yifan): add preds output here
     end = time.time()
     for batch_idx, elem in enumerate(train_loader):
         Data_time.update(time.time() - end)
@@ -140,11 +139,14 @@ def _parallel_fit_per_epoch(
 
         optimizer.zero_grad()
         cls1, cls2, distill_out = estimator_now(*data)
-        ens = ((cls1 + cls2) / 2 + distill_out) / 2
+        cls_aux = (cls1 + cls2) / 2
+        ens = (cls_aux + distill_out) / 2
         ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
 
         acc_1, correct_1 = accuracy(cls1, target)
         acc_2, correct_2 = accuracy(cls2, target)
+        acc_aux_ens, correct_aux_ens = accuracy(cls_aux, target)
+        acc_distill, correct_distill = accuracy(distill_out, target)
         acc_ens, correct_ens = accuracy(ens, target)
         acc_ens_sf, correct_ens_sf = accuracy(ens_sf, target)
         _, pred_1 = cls1.topk(1, 1, True, True)
@@ -170,7 +172,7 @@ def _parallel_fit_per_epoch(
 
         cls_w = loss_dis.detach() / torch.mean(loss_dis.detach()) if args.add_cls_w else 1
 
-        loss = (cls_w if aux_dis_lambda > 0 else 1) * cls_loss - loss_dis * dis_w * aux_dis_lambda
+        loss = (cls_w if args.aux_dis_lambda > 0 else 1) * cls_loss - loss_dis * dis_w * args.aux_dis_lambda
 
 
         if idx == 0:
@@ -185,7 +187,7 @@ def _parallel_fit_per_epoch(
             distill_criterion = DistillationLoss(
                args.distillation_type, args.distillation_tau
             )
-            distillation_loss = distill_criterion(ens_old[-1], distill_out)
+            distillation_loss = distill_criterion(torch.mean(ens_old, dim=1), distill_out)
 
         loss = loss * (1 - args.distillation_alpha) + distillation_loss * args.distillation_alpha
 
@@ -206,12 +208,14 @@ def _parallel_fit_per_epoch(
         Loss_cls_2.update(loss_cls_2.item(), batch_size)
         Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
         Loss_dis.update(loss_dis.item(), batch_size)
-        Loss_distill.update(Loss_distill.item(), batch_size)
+        Loss_distill.update(distillation_loss.item(), batch_size)
 
         Exit_rate.update(exit_rate.item(), batch_size)
 
         Acc1.update(acc_1[0].item(), batch_size)
         Acc2.update(acc_2[0].item(), batch_size)
+        Acc_aux_ens.update(acc_aux_ens[0].item(), batch_size)
+        Acc_distill.update(acc_distill[0].item(), batch_size)
         Acc_ens.update(acc_ens[0].item(), batch_size)
         Acc_same.update(acc_same[0].item(), batch_size)
         Acc_ens_sf.update(acc_ens_sf[0].item(), batch_size)
@@ -236,7 +240,7 @@ def _parallel_test_per_epoch(
     epoch,
     device,
     logger,
-    aux_dis_lambda
+    args
 ):
     """
     Private function used to fit base estimators in parallel.
@@ -251,17 +255,22 @@ def _parallel_test_per_epoch(
     Loss_cls_1 = AverageMeter('Loss_cls_1', ':6.3f')
     Loss_cls_2 = AverageMeter('Loss_cls_2', ':6.3f')
     Loss_cls_ens = AverageMeter('Loss_cls_ens', ':6.3f')
+    Loss_distill = AverageMeter('Loss_distill', ':6.3f')
     Loss_dis = AverageMeter('Loss_dis', ':6.3f')
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
+    Acc_aux_ens = AverageMeter('Acc_aux_ens@1', ':6.2f')
+
     Acc_ens = AverageMeter('Acc_ens@1', ':6.2f')
+    Acc_distill = AverageMeter('Acc_distill@1', ':6.2f')
     Acc_same = AverageMeter('Acc_same@1', ':6.2f')
 
     Exit_rate = AverageMeter('Exit_rate@1', ':6.2f')
     Acc_ens_sf = AverageMeter('Acc_ens_sf@1', ':6.2f')
+
     progress = ProgressMeter(
         len(train_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Exit_rate, Acc_same, Acc1, Acc2, Acc_ens, Acc_ens_sf],
+        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Loss_distill, Exit_rate, Acc_same, Acc1, Acc2, Acc_aux_ens, Acc_distill, Acc_ens, Acc_ens_sf],
         prefix=f"Epoch: [{epoch}] Ens:[{idx}]",
     logger = logger)
 
@@ -273,30 +282,65 @@ def _parallel_test_per_epoch(
         batch_size = target.size(0)
 
         cls1, cls2, distill_out = estimator(*data)
-        ens = ((cls1 + cls2) / 2 + distill_out) / 2
+        cls_aux = (cls1 + cls2) / 2
+        ens = (cls_aux + distill_out) / 2
         ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
 
         acc_1, correct_1 = accuracy(cls1, target)
         acc_2, correct_2 = accuracy(cls2, target)
+        acc_aux_ens, correct_aux_ens = accuracy(cls_aux, target)
+        acc_distill, correct_distill = accuracy(distill_out, target)
         acc_ens, correct_ens = accuracy(ens, target)
         acc_ens_sf, correct_ens_sf = accuracy(ens_sf, target)
         _, pred_1 = cls1.topk(1, 1, True, True)
         _, pred_2 = cls2.topk(1, 1, True, True)
         _, pred_ens = ens.topk(1, 1, True, True)
         exit_mask = (pred_1 == pred_2).view(-1)
+
         exit_rate = torch.sum(exit_mask) / batch_size * 100
         acc_same, _ = accuracy(ens[exit_mask], target[exit_mask]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
 
         loss_cls_1 = criterion(cls1, target)
         loss_cls_2 = criterion(cls2, target)
+
         loss_cls_ens = criterion(ens, target)
 
         loss_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
 
         cls_loss = (loss_cls_1 + loss_cls_2) / 2
-        loss = torch.mean(loss_dis.detach() / torch.mean(loss_dis.detach()) * cls_loss) - torch.mean(
-            loss_dis * (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
-                        torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach()))) * aux_dis_lambda
+
+
+        dis_w = (torch.max(cls_loss.detach()) - cls_loss.detach()) / (
+        torch.max(cls_loss.detach()) - torch.mean(cls_loss.detach())) if args.add_dis_w else 1
+
+        cls_w = loss_dis.detach() / torch.mean(loss_dis.detach()) if args.add_cls_w else 1
+
+        loss = (cls_w if args.aux_dis_lambda > 0 else 1) * cls_loss - loss_dis * dis_w * args.aux_dis_lambda
+
+
+        if idx == 0:
+            loss = torch.mean(loss)
+            distillation_loss = criterion(distill_out, target)
+            distillation_loss = torch.mean(distillation_loss)
+        else:
+            exit_mask_before, ens_old = look_up(data_id)
+            loss_weight = F.softmax(exit_mask_before, 0) * batch_size
+            loss = torch.mean(loss_weight * loss)
+
+            distillation_loss = criterion(distill_out, target)
+            distillation_loss = torch.mean(distillation_loss)
+
+            # distill_criterion = DistillationLoss(
+            #    args.distillation_type, args.distillation_tau
+            # )
+            # distillation_loss = distill_criterion(torch.mean(ens_old, dim=1), distill_out)
+
+        loss = loss * (1 - args.distillation_alpha) + distillation_loss * args.distillation_alpha
+
+        # loss_weight = pred_1.new_ones(target.size()) * 1.0 - hm_value
+            # loss_weight[exit_mask_before] = 1.0
+            # loss_weight = loss_weight * batch_size / torch.sum(loss_weight)
+
         loss_cls_1 = torch.mean(loss_cls_1)
         loss_cls_2 = torch.mean(loss_cls_2)
         loss_cls_ens = torch.mean(loss_cls_ens)
@@ -308,14 +352,18 @@ def _parallel_test_per_epoch(
         Loss_cls_ens.update(loss_cls_ens.item(), batch_size)
 
         Loss_dis.update(loss_dis.item(), batch_size)
+        Loss_distill.update(distillation_loss.item(), batch_size)
 
         Exit_rate.update(exit_rate.item(), batch_size)
 
         Acc1.update(acc_1[0].item(), batch_size)
         Acc2.update(acc_2[0].item(), batch_size)
-        Acc_same.update(acc_same[0].item(), batch_size)
+        Acc_aux_ens.update(acc_aux_ens[0].item(), batch_size)
+        Acc_distill.update(acc_distill[0].item(), batch_size)
         Acc_ens.update(acc_ens[0].item(), batch_size)
+        Acc_same.update(acc_same[0].item(), batch_size)
         Acc_ens_sf.update(acc_ens_sf[0].item(), batch_size)
+
         Batch_time.update(time.time() - end)
     logger.info(progress.display_avg())
 
@@ -348,7 +396,8 @@ def build_map_for_training(
         data_id, data, target = io.split_data_target(elem, device)
 
         cls1, cls2, distill_out = estimator(*data)
-        ens = ((cls1 + cls2) / 2 + distill_out) / 2
+        cls_aux = (cls1 + cls2) / 2
+        ens = (cls_aux + distill_out) / 2
 
         _, pred_1 = cls1.topk(1, 1, True, True)
         _, pred_2 = cls2.topk(1, 1, True, True)
@@ -367,13 +416,16 @@ def look_up(indexs):
     for id in indexs:
         ens_now = []
         for idx, (_exit, _ens) in enumerate(look_up_map[id]):
-            ens_now.append(_ens)
+            ens_now.append(_ens.view(1, -1))
             if idx == 0:
                 exit_now = _exit
             else:
                 exit_now += _exit
+
         exit_mask.append(exit_now)
+        ens_now = torch.cat(ens_now)
         ens.append(ens_now)
+    ens = torch.stack(ens)
     exit_mask = _exit.new_tensor(exit_mask)
     return exit_mask, ens
 @torchensemble_model_doc(
@@ -390,7 +442,8 @@ class VotingClassifier(BaseClassifier):
         for idx, estimator in enumerate(self.estimators_):
 
             cls1, cls2, distill_out = estimator(*x)
-            ens = ((cls1 + cls2) / 2 + distill_out) / 2
+            cls_aux = (cls1 + cls2) / 2
+            ens = (cls_aux + distill_out) / 2
             ret = F.softmax(ens, dim=1)
             outputs.append(ret)
 
@@ -452,7 +505,8 @@ class VotingClassifier(BaseClassifier):
         for idx, estimator in enumerate(estimators):
 
             cls1, cls2, distill_out = estimator(*x)
-            ens = ((cls1 + cls2) / 2 + distill_out) / 2
+            cls_aux = (cls1 + cls2) / 2
+            ens = (cls_aux + distill_out) / 2
             ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
             _, pred_1 = cls1.topk(1, 1, True, True)
             _, pred_2 = cls2.topk(1, 1, True, True)
@@ -475,7 +529,6 @@ class VotingClassifier(BaseClassifier):
         test_loader=None,
         save_model=True,
         save_dir=None,
-        aux_dis_lambda=0,
         args=None,
     ):
 
@@ -510,10 +563,12 @@ class VotingClassifier(BaseClassifier):
             for idx, estimator in enumerate(estimators):
 
                 cls1, cls2, distill_out = estimator(*x)
-                ens = ((cls1 + cls2) / 2 + distill_out) / 2
+                cls_aux = (cls1 + cls2) / 2
+                ens = (cls_aux + distill_out) / 2
                 ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
                 _, pred_1 = cls1.topk(1, 1, True, True)
                 _, pred_2 = cls2.topk(1, 1, True, True)
+                _, pred_distill = distill_out.topk(1, 1, True, True)
 
                 ret = F.softmax(ens, dim=1)
                 if idx > 0:
@@ -521,10 +576,12 @@ class VotingClassifier(BaseClassifier):
                     ens_sf[mask] = outputs_sf[-1][mask]
                 outputs.append(ret)
                 outputs_sf.append(ens_sf)
+                mask_now = pred_1.view(-1) == pred_2.view(-1)
+                mask_now = mask_now == pred_distill.view(-1)
                 if idx == 0:
-                    mask = pred_1.view(-1) == pred_2.view(-1)
+                    mask = mask_now
                 else:
-                    mask += pred_1.view(-1) == pred_2.view(-1)
+                    mask += mask_now
             proba = op.average(outputs)
             proba_sf = op.average(outputs_sf)
 
@@ -536,7 +593,8 @@ class VotingClassifier(BaseClassifier):
             for idx, estimator in enumerate(estimators):
 
                 cls1, cls2, distill_out = estimator(*x)
-                ens = ((cls1 + cls2) / 2 + distill_out) / 2
+                cls_aux = (cls1 + cls2) / 2
+                ens = (cls_aux + distill_out) / 2
                 ens_sf = ((F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 + F.softmax(distill_out, 1)) / 2
 
                 ret = F.softmax(ens, dim=1)
@@ -581,7 +639,6 @@ class VotingClassifier(BaseClassifier):
                     log_interval,
                     self.device,
                     self.logger,
-                    aux_dis_lambda,
                     args
                 )
 
@@ -596,7 +653,7 @@ class VotingClassifier(BaseClassifier):
                                                  epoch,
                                                  self.device,
                                                  self.logger,
-                                                 aux_dis_lambda
+                                                 args
                                                  )
 
                         Acc1 = AverageMeter('Acc1@1', ':6.2f')

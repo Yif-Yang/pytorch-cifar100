@@ -19,14 +19,15 @@ parser.add_argument('-aux_dis_lambda', type=float, default=0, help='aux_dis_lamb
 parser.add_argument('-hm_value', type=float, default=0, help='hm_value loss rate')
 parser.add_argument('-add_cls_w', action='store_true', default=False, help='add_cls_w training')
 parser.add_argument('-add_dis_w', action='store_true', default=False, help='add_dis_w training')
-parser.add_argument('--distillation-type', default='soft', choices=['none', 'soft', 'hard'], type=str, help="")
-parser.add_argument('--distillation-alpha', default=0.5, type=float, help="")
-parser.add_argument('--distillation-tau', default=1.0, type=float, help="")
+parser.add_argument('-distillation-type', default='soft', choices=['none', 'soft', 'hard'], type=str, help="")
+parser.add_argument('-distillation-alpha', default=0.5, type=float, help="")
+parser.add_argument('-distillation-tau', default=1.0, type=float, help="")
 args = parser.parse_args()
 if not os.path.exists('./work_dir'):
       os.mkdir('./work_dir')
 exp_name = f"{args.exp_name}_{args.net}_nEns-{args.n_estimators}_lr{args.lr}_dis-length-{args.aux_dis_lambda}_hm-value-{args.hm_value}_" \
            f"{f'nesterov_' if args.nesterov else ''}{f'add_cls_w_' if args.add_cls_w else ''}{f'add_dis_w_' if args.add_dis_w else ''}" \
+           f"distillation-type-{args.distillation_type}_distillation-alpha-{args.distillation_alpha}_distillation-tau-{args.distillation_tau}_" \
            f"{f'seed_{args.seed}' if args.seed > -1 else ''}_run-{args.runs}"
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       "nohup python train.py " \
@@ -37,6 +38,9 @@ cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       f"-work_dir={os.path.join(args.work_dir, exp_name)} " \
       f"-aux_dis_lambda={args.aux_dis_lambda} " \
       f"-hm_value={args.hm_value} " \
+      f"-distillation-type={args.distillation_type} " \
+      f"-distillation-alpha={args.distillation_alpha} " \
+      f"-distillation-tau={args.distillation_tau} " \
       f"{f'-add_cls_w ' if args.add_cls_w else ''}" \
       f"{f'-add_dis_w ' if args.add_dis_w else ''}" \
       f"-blob_dir={args.blob_dir} " \
