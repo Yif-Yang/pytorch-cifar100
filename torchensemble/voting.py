@@ -422,18 +422,16 @@ def look_up(indexs):
     exit_mask, ens = [], []
     for id in indexs:
         ens_now = []
-        for idx, (_exit, _ens) in enumerate(look_up_map[id]):
+        exit_now = []
+        for idx, (_exit_distence, _ens) in enumerate(look_up_map[id]):
             ens_now.append(_ens.view(1, -1))
-            if idx == 0:
-                exit_now = _exit
-            else:
-                exit_now += _exit
+            exit_now.append(_exit_distence)
 
-        exit_mask.append(exit_now)
+        exit_mask.append(torch.mean(exit_now))
         ens_now = torch.cat(ens_now)
         ens.append(ens_now)
     ens = torch.stack(ens)
-    exit_mask = _exit.new_tensor(exit_mask)
+    exit_mask = _exit_distence.new_tensor(exit_mask)
     return exit_mask, ens
 @torchensemble_model_doc(
     """Implementation on the VotingClassifier.""", "model"
