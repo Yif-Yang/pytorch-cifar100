@@ -427,7 +427,7 @@ def look_up(indexs):
             ens_now.append(_ens.view(1, -1))
             exit_now.append(_exit_distence)
 
-        exit_mask.append(torch.mean(exit_now))
+        exit_mask.append(torch.mean(torch.tensor(exit_now)))
         ens_now = torch.cat(ens_now)
         ens.append(ens_now)
     ens = torch.stack(ens)
