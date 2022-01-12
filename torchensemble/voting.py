@@ -576,7 +576,7 @@ class VotingClassifier(BaseClassifier):
         # dis_len_t_l = [torch.cat(x) for x in dis_len_t_l]
         # dis_len_f_l = [torch.cat(x) for x in dis_len_f_l]
         self.logger.info(progress.display_avg())
-        self.logger.info(f'Now inference cost:{cost}x base model')
+        self.logger.info(f'Now inference cost:{cost:.3f}x base model')
         return Acc1_ens.avg
     @torchensemble_model_doc(
         """Set the attributes on optimizer for VotingClassifier.""",
