@@ -3,7 +3,7 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument('-net', type=str, default='resnet18_new', help='net type')
 parser.add_argument('-work_dir', type=str, default='./work_dir', help='dir name')
-parser.add_argument('-exp_name', type=str, default='add_patience', help='exp_name ')
+parser.add_argument('-exp_name', type=str, default='hm_nodis', help='exp_name ')
 parser.add_argument('-runs', type=str, default='fix_mask', help='exp_name ')
 parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_yif_resrchvc4data/output/ensemble/cifar100',
                     help='dir name')
@@ -16,7 +16,7 @@ parser.add_argument('-seed', type=int, default=-1, metavar='S', help='random see
 parser.add_argument('-nesterov', action='store_false', default=True, help='nesterov training')
 parser.add_argument('-n_estimators', type=int, default=3, metavar='S', help='random seed (default: 1)')
 parser.add_argument('-aux_dis_lambda', type=float, default=0, help='aux_dis_lambda loss rate')
-parser.add_argument('-hm_value', type=float, default=0, help='hm_value loss rate')
+parser.add_argument('-hm_value', type=float, default=1, help='hm_value loss rate')
 parser.add_argument('-add_cls_w', action='store_true', default=False, help='add_cls_w training')
 parser.add_argument('-add_dis_w', action='store_true', default=False, help='add_dis_w training')
 parser.add_argument('-distillation-type', default='soft', choices=['none', 'soft', 'hard'], type=str, help="")

@@ -183,8 +183,11 @@ def _parallel_fit_per_epoch(
             distillation_loss = criterion(distill_out, target)
             distillation_loss = torch.mean(distillation_loss)
         else:
-            exit_mask_before, ens_old = look_up(data_id)
-            loss_weight = F.softmax(exit_mask_before / args.div_tau) * batch_size
+            exit_mask_before, exit_dis_before, ens_old = look_up(data_id)
+            loss_weight = pred_1.new_ones(target.size()) * 1.0
+            loss_weight[exit_mask_before] = 1.0 + args.hm_value
+
+            loss_weight = F.softmax(loss_weight / args.div_tau) * batch_size
             loss = torch.mean(loss_weight * loss)
 
             distill_criterion = DistillationLoss(
@@ -329,12 +332,15 @@ def _parallel_test_per_epoch(
             distillation_loss = criterion(distill_out, target)
             distillation_loss = torch.mean(distillation_loss)
         else:
-            exit_mask_before, ens_old = look_up(data_id)
-            loss_weight = F.softmax(exit_mask_before, 0) * batch_size
+            exit_mask_before, exit_dis_before, ens_old = look_up(data_id)
+            loss_weight = pred_1.new_ones(target.size()) * 1.0
+            loss_weight[exit_mask_before] = 1.0 + args.hm_value
+
+            loss_weight = F.softmax(loss_weight / args.div_tau) * batch_size
             loss = torch.mean(loss_weight * loss)
 
             distillation_loss = criterion(distill_out, target)
-            distillation_loss = torch.mean(distillation_loss)
+            distillation_loss = torch.mean(loss_weight * distillation_loss)
 
             # distill_criterion = DistillationLoss(
             #    args.distillation_type, args.distillation_tau
@@ -408,31 +414,45 @@ def build_map_for_training(
 
         _, pred_1 = cls1.topk(1, 1, True, True)
         _, pred_2 = cls2.topk(1, 1, True, True)
+        _, pred_aux = cls_aux.topk(1, 1, True, True)
+        _, pred_distill = distill_out.topk(1, 1, True, True)
         _, pred_ens = ens.topk(1, 1, True, True)
-        # exit_mask = (pred_1 == pred_2).view(-1)
-        exit_mask = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
+        mask_now = (pred_1 == pred_2).view(-1)
+        mask_now = mask_now.__and__(pred_aux.view(-1) == pred_distill.view(-1))
+        mask_now = mask_now.__and__(pred_ens.view(-1) == pred_distill.view(-1))
+
+        aux_dis = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
         # exit_mask = F.softmax()
-        for id, _mask, _ens in zip(data_id, exit_mask, ens):
-            look_up_map[id].append((_mask, _ens))
+        for id, _dis, _mask, _ens, _pred_ens in zip(data_id, aux_dis, mask_now, ens, pred_ens):
+            if idx > 0:
+                _mask.__and__((_pred_ens.view(-1) == look_up_map[id][-1][2].topk(1, 0, True, True)[1])[0])
+            look_up_map[id].append((_mask, _dis, _ens))
 
         Batch_time.update(time.time() - end)
     logger.info(progress.display_avg())
 
 def look_up(indexs):
-    exit_mask, ens = [], []
+    exit_mask, exit_dis, ens = [], [], []
     for id in indexs:
         ens_now = []
-        exit_now = []
-        for idx, (_exit_distence, _ens) in enumerate(look_up_map[id]):
+        exit_dis_now = []
+        for idx, (_exit_mask, _exit_distence, _ens) in enumerate(look_up_map[id]):
             ens_now.append(_ens.view(1, -1))
-            exit_now.append(_exit_distence)
+            exit_dis_now.append(_exit_distence)
+            if idx == 0:
+                exit_mask_now = _exit_mask
+            else:
+                exit_mask_now += _exit_mask
 
-        exit_mask.append(torch.mean(torch.tensor(exit_now)))
+
+        exit_dis.append(torch.mean(torch.tensor(exit_dis_now)))
+        exit_mask.append(~torch.tensor(exit_mask_now))
         ens_now = torch.cat(ens_now)
         ens.append(ens_now)
     ens = torch.stack(ens)
-    exit_mask = _exit_distence.new_tensor(exit_mask)
-    return exit_mask, ens
+    exit_dis = _exit_distence.new_tensor(exit_dis)
+    exit_mask = _exit_distence.new_tensor(exit_mask) == 1
+    return exit_mask, exit_dis, ens
 @torchensemble_model_doc(
     """Implementation on the VotingClassifier.""", "model"
 )
