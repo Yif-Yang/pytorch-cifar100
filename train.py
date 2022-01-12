@@ -126,13 +126,13 @@ if __name__ == '__main__':
         use_tb_logger=True, log_path=args.work_dir
     )
     tic = time.time()
-    net.fit(cifar100_training_loader,
-        epochs=settings.EPOCH,
-        log_interval=args.print_freq,
-        test_loader=cifar100_test_loader,
-        save_model=True,
-        save_dir=checkpoint_path,
-        )
+    # net.fit(cifar100_training_loader,
+    #     epochs=settings.EPOCH,
+    #     log_interval=args.print_freq,
+    #     test_loader=cifar100_test_loader,
+    #     save_model=True,
+    #     save_dir=checkpoint_path,
+    #     )
     toc = time.time()
     training_time = toc - tic
     if args.resume:
@@ -140,7 +140,7 @@ if __name__ == '__main__':
     # Evaluating
     tic = time.time()
     # testing_acc, testing_loss = net.evaluate(cifar100_test_loader, return_loss=True)
-    # testing_acc = net.evaluate(cifar100_test_loader, return_loss=True)
+    testing_acc = net.evaluate(cifar100_test_loader, return_loss=True)
     toc = time.time()
     evaluating_time = toc - tic
     # records = []

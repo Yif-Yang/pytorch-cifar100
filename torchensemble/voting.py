@@ -481,21 +481,62 @@ class VotingClassifier(BaseClassifier):
 
         Acc1 = AverageMeter('Acc1@1', ':6.2f')
         Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
+        Acc_same = AverageMeter('Acc_same@1', ':6.2f')
+
+        Exit_rate = AverageMeter('Exit_rate@1', ':6.2f')
         progress = ProgressMeter(
             len(test_loader),
-            [Acc1, Acc1_sf],
+            [Acc1, Acc1_sf, Acc_same, Exit_rate],
             prefix=f"Eval: ",
             logger = self.logger)
+        outputs = []
+        outputs_sf = []
+        outputs_dis = []
         for _, elem in enumerate(test_loader):
             idx, data, target = io.split_data_target(
                 elem, self.device
             )
             batch_size = target.size(0)
-            output, output_sf = self._forward(self.estimators_, *data)
-            acc_1, correct_1 = accuracy(output, target)
-            acc_sf, correct_1_sf = accuracy(output_sf, target)
+            for idx, estimator in enumerate(self.estimators_):
+
+                cls1, cls2, distill_out = estimator(*data)
+                cls_aux = (cls1 + cls2) / 2
+                ens = cls_aux * (1 - self.args.distillation_alpha) + distill_out * self.args.distillation_alpha
+                ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 * (1 - self.args.distillation_alpha) + F.softmax(distill_out, 1) * self.args.distillation_alpha
+                _, pred_1 = cls1.topk(1, 1, True, True)
+                _, pred_2 = cls2.topk(1, 1, True, True)
+                _, pred_aux = cls_aux.topk(1, 1, True, True)
+                _, pred_distill = distill_out.topk(1, 1, True, True)
+                _, pred_ens = ens.topk(1, 1, True, True)
+                ret = F.softmax(ens, dim=1)
+                if idx > 0:
+                    ret[mask] = outputs[-1][mask]
+                    ens_sf[mask] = outputs_sf[-1][mask]
+                outputs.append(ret)
+                outputs_sf.append(ens_sf)
+                mask_now = pred_1.view(-1) == pred_2.view(-1)
+                mask_now = mask_now.__and__(pred_aux.view(-1) == pred_distill.view(-1))
+                mask_now = mask_now.__and__(pred_ens.view(-1) == pred_distill.view(-1))
+                if idx == 0:
+                    mask = mask_now
+                else:
+                    mask_now = mask_now.__and__(pred_ens.view(-1) == old_pred.view(-1))
+                    mask_now = mask_now.__and__(pred_1.view(-1) == old_pred.view(-1))
+                    mask_now = mask_now.__and__(pred_2.view(-1) == old_pred.view(-1))
+                    mask += mask_now
+                old_pred = pred_ens
+                exit_rate = torch.sum(mask) / data[0].size(0) * 100
+                acc_same, _ = accuracy(ens[mask], target[mask]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
+                print(exit_rate, acc_same)
+            proba = op.average(outputs)
+            proba_sf = op.average(outputs_sf)
+
+            acc_1, correct_1 = accuracy(proba, target)
+            acc_sf, correct_1_sf = accuracy(proba_sf, target)
             Acc1.update(acc_1[0].item(), batch_size)
             Acc1_sf.update(acc_sf[0].item(), batch_size)
+            Exit_rate.update(exit_rate.item(), batch_size)
+            Acc_same.update(acc_same[0].item(), batch_size)
         print(progress.display_avg())
         return Acc1.avg
     @torchensemble_model_doc(
@@ -523,9 +564,10 @@ class VotingClassifier(BaseClassifier):
         """Implementation on the training stage of VotingClassifier.""", "fit"
     )
     # Internal helper function on pesudo forward
-    def _forward(self, estimators, *x):
+    def _forward(self, estimators, target, *x):
         outputs = []
         outputs_sf = []
+        outputs_dis = []
         for idx, estimator in enumerate(estimators):
 
             cls1, cls2, distill_out = estimator(*x)
@@ -534,13 +576,29 @@ class VotingClassifier(BaseClassifier):
             ens_sf = (F.softmax(cls1, 1) + F.softmax(cls2, 1)) / 2 * (1 - self.args.distillation_alpha) + F.softmax(distill_out, 1) * self.args.distillation_alpha
             _, pred_1 = cls1.topk(1, 1, True, True)
             _, pred_2 = cls2.topk(1, 1, True, True)
+            _, pred_aux = cls_aux.topk(1, 1, True, True)
+            _, pred_distill = distill_out.topk(1, 1, True, True)
+            _, pred_ens = ens.topk(1, 1, True, True)
             ret = F.softmax(ens, dim=1)
-            if len(outputs) > 0:
+            if idx > 0:
                 ret[mask] = outputs[-1][mask]
                 ens_sf[mask] = outputs_sf[-1][mask]
             outputs.append(ret)
             outputs_sf.append(ens_sf)
-            mask = pred_1.view(-1) == pred_2.view(-1)
+            mask_now = pred_1.view(-1) == pred_2.view(-1)
+            mask_now = mask_now.__and__(pred_aux.view(-1) == pred_distill.view(-1))
+            mask_now = mask_now.__and__(pred_ens.view(-1) == pred_distill.view(-1))
+            if idx == 0:
+                mask = mask_now
+            else:
+                mask_now = mask_now.__and__(pred_ens.view(-1) == old_pred.view(-1))
+                mask_now = mask_now.__and__(pred_1.view(-1) == old_pred.view(-1))
+                mask_now = mask_now.__and__(pred_2.view(-1) == old_pred.view(-1))
+                mask += mask_now
+            old_pred = pred_ens
+            exit_rate = torch.sum(mask) / x[0].size(0) * 100
+            acc_same, _ = accuracy(ens[mask], target[mask]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
+            print(exit_rate, acc_same)
         proba = op.average(outputs)
         proba_sf = op.average(outputs_sf)
 
@@ -741,9 +799,9 @@ class VotingClassifier(BaseClassifier):
         if save_model and not test_loader:
             io.save(self, save_dir, self.logger)
 
-    @torchensemble_model_doc(item="classifier_evaluate")
-    def evaluate(self, test_loader, return_loss=False):
-        return super().evaluate(test_loader, return_loss)
+    # @torchensemble_model_doc(item="classifier_evaluate")
+    # def evaluate(self, test_loader, return_loss=False):
+    #     return super().evaluate(test_loader, return_loss)
 
     @torchensemble_model_doc(item="predict")
     def predict(self, *x):

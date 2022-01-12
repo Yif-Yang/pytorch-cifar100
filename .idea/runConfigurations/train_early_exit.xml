@@ -1,0 +1,24 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="train_early_exit" type="PythonConfigurationType" factoryName="Python">
+    <module name="pytorch-cifar100" />
+    <option name="INTERPRETER_OPTIONS" value="" />
+    <option name="PARENT_ENVS" value="true" />
+    <envs>
+      <env name="PYTHONUNBUFFERED" value="1" />
+    </envs>
+    <option name="SDK_HOME" value="sftp://FAREAST.yifanyang@GCRSANDBOX242.redmond.corp.microsoft.com:11235/opt/conda/envs/ensemble/bin/python" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="IS_MODULE_SDK" value="false" />
+    <option name="ADD_CONTENT_ROOTS" value="true" />
+    <option name="ADD_SOURCE_ROOTS" value="true" />
+    <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/train.py" />
+    <option name="PARAMETERS" value="-net resnet18_new -seed 0 -aux_dis_lambda 50 -resume /my_dir/ensemble/cifar100_exp_debug/patience_distill_resnet18_new_nEns-3_lr0.1_dis-length-50.0_hm-value-0_nesterov_distillation-type-soft_distillation-alpha-0.9_distillation-tau-1.0__div-tau-0.5_seed_0_run-fix_mask/ckpt -distillation-alpha 0.9" />
+    <option name="SHOW_COMMAND_LINE" value="false" />
+    <option name="EMULATE_TERMINAL" value="false" />
+    <option name="MODULE_MODE" value="false" />
+    <option name="REDIRECT_INPUT" value="false" />
+    <option name="INPUT_FILE" value="" />
+    <method v="2" />
+  </configuration>
+</component>
