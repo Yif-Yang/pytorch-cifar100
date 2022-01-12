@@ -481,22 +481,31 @@ class VotingClassifier(BaseClassifier):
 
         Acc1 = AverageMeter('Acc1@1', ':6.2f')
         Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
-        Acc_same = AverageMeter('Acc_same@1', ':6.2f')
+        Acc_same_1 = AverageMeter('Acc_same_1@1', ':6.2f')
+        Acc_same_2 = AverageMeter('Acc_same_2@1', ':6.2f')
+        Acc_same_3 = AverageMeter('Acc_same_3@1', ':6.2f')
 
-        Exit_rate = AverageMeter('Exit_rate@1', ':6.2f')
+        Exit_rate_1 = AverageMeter('Exit_rate_1@1', ':6.2f')
+        Exit_rate_2 = AverageMeter('Exit_rate_2@1', ':6.2f')
+        Exit_rate_3 = AverageMeter('Exit_rate_3@1', ':6.2f')
+        Acc_same_l = [Acc_same_1, Acc_same_2, Acc_same_3]
+        Exit_rate_l = [Exit_rate_1, Exit_rate_2, Exit_rate_3]
         progress = ProgressMeter(
             len(test_loader),
-            [Acc1, Acc1_sf, Acc_same, Exit_rate],
+            [Acc1, Acc1_sf, Exit_rate_1, Exit_rate_2, Exit_rate_3, Acc_same_1, Acc_same_2, Acc_same_3],
             prefix=f"Eval: ",
             logger = self.logger)
-        outputs = []
-        outputs_sf = []
-        outputs_dis = []
+        dis_len_t_l = [[] for i in range(3)]
+        dis_len_f_l = [[] for i in range(3)]
         for _, elem in enumerate(test_loader):
             idx, data, target = io.split_data_target(
                 elem, self.device
             )
+            outputs = []
+            outputs_sf = []
+            # outputs_dis = []
             batch_size = target.size(0)
+
             for idx, estimator in enumerate(self.estimators_):
 
                 cls1, cls2, distill_out = estimator(*data)
@@ -517,27 +526,39 @@ class VotingClassifier(BaseClassifier):
                 mask_now = pred_1.view(-1) == pred_2.view(-1)
                 mask_now = mask_now.__and__(pred_aux.view(-1) == pred_distill.view(-1))
                 mask_now = mask_now.__and__(pred_ens.view(-1) == pred_distill.view(-1))
-                if idx == 0:
-                    mask = mask_now
-                else:
+                dis_l = torch.mean(dis_criterion(F.softmax(cls1, 1), F.softmax(cls2, 1)), dim=-1)
+                dis_len_t_l[idx].append(dis_l[pred_ens.view(-1) == target])
+                dis_len_f_l[idx].append(dis_l[pred_ens.view(-1) != target])
+                if idx > 0:
                     mask_now = mask_now.__and__(pred_ens.view(-1) == old_pred.view(-1))
                     mask_now = mask_now.__and__(pred_1.view(-1) == old_pred.view(-1))
                     mask_now = mask_now.__and__(pred_2.view(-1) == old_pred.view(-1))
-                    mask += mask_now
                 old_pred = pred_ens
-                exit_rate = torch.sum(mask) / data[0].size(0) * 100
-                acc_same, _ = accuracy(ens[mask], target[mask]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
-                print(exit_rate, acc_same)
+                if idx == 0:
+                    exit_rate = torch.sum(mask_now) / data[0].size(0) * 100
+                    acc_same, _ = accuracy(ens[mask_now], target[mask_now]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
+                else:
+                    mask_increase = (~mask).__and__(mask_now)
+                    exit_rate = torch.sum(mask_increase) / data[0].size(0) * 100
+                    acc_same, _ = accuracy(ens[mask_increase], target[mask_increase]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
+
+                # print(exit_rate, acc_same)
+                Exit_rate_l[idx].update(exit_rate.item(), batch_size)
+                Acc_same_l[idx].update(acc_same[0].item(), batch_size)
+                mask = mask_now
             proba = op.average(outputs)
             proba_sf = op.average(outputs_sf)
-
             acc_1, correct_1 = accuracy(proba, target)
             acc_sf, correct_1_sf = accuracy(proba_sf, target)
             Acc1.update(acc_1[0].item(), batch_size)
             Acc1_sf.update(acc_sf[0].item(), batch_size)
-            Exit_rate.update(exit_rate.item(), batch_size)
-            Acc_same.update(acc_same[0].item(), batch_size)
-        print(progress.display_avg())
+            cost_1 = Exit_rate_l[0].avg * 0.01
+            cost_2 = Exit_rate_l[1].avg * 0.01
+            cost = cost_1 + cost_2 * 2 + (1 - cost_1 - cost_2) * 3
+        dis_len_t_l = [torch.cat(x) for x in dis_len_t_l]
+        dis_len_f_l = [torch.cat(x) for x in dis_len_f_l]
+
+        print(progress.display_avg(), cost)
         return Acc1.avg
     @torchensemble_model_doc(
         """Set the attributes on optimizer for VotingClassifier.""",
