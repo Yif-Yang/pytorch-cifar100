@@ -185,7 +185,9 @@ def _parallel_fit_per_epoch(
         else:
             exit_mask_before, exit_dis_before, ens_old = look_up(data_id)
             loss_weight = pred_1.new_ones(target.size()) * 1.0
-            loss_weight[exit_mask_before] = 1.0 + args.hm_value
+            if args.hm_add_dis:
+                loss_weight += exit_dis_before
+            loss_weight[exit_mask_before] += args.hm_value
 
             loss_weight = F.softmax(loss_weight / args.div_tau) * batch_size
             loss = torch.mean(loss_weight * loss)
