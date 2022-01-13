@@ -542,8 +542,8 @@ class VotingClassifier(BaseClassifier):
                 _, pred_distill = distill_out.topk(1, 1, True, True)
                 _, pred_ens = ens.topk(1, 1, True, True)
                 ret = F.softmax(ens, dim=1)
-                outputs_ens.append(ret)
-                outputs_ens_sf.append(ens_sf)
+                outputs_ens.append(ret.clone())
+                outputs_ens_sf.append(ens_sf.clone())
 
                 if idx > 0:
                     ret[mask] = outputs[-1][mask]
