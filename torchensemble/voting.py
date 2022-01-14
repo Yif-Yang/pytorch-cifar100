@@ -654,7 +654,7 @@ class VotingClassifier(BaseClassifier):
         # Check the training criterion
         if not hasattr(self, "_criterion"):
             self._criterion = nn.CrossEntropyLoss()
-
+        self.estimators_dic = [[] for _ in range(self.n_estimators)]
         # Training loop
         for train_idx in range(self.n_estimators + 1):
             if self.use_scheduler_:
@@ -664,7 +664,8 @@ class VotingClassifier(BaseClassifier):
             best_acc = 0.0
             if train_idx > 0:
                 estimators[train_idx - 1].load_state_dict(self.estimators_dic[train_idx - 1])
-
+            if train_idx == self.n_estimators:
+                estimators[train_idx].load_state_dict(self.estimators_dic[0])
             for epoch in range(epochs):
                 self.train()
 
@@ -717,7 +718,6 @@ class VotingClassifier(BaseClassifier):
                                 if save_model:
                                     io.save(self, save_dir, self.logger)
                             else:
-                                self.estimators_dic = [[] for _ in range(self.n_estimators)]
                                 self.estimators_dic[train_idx] = estimators[train_idx].state_dict()
                                 self.estimators_ = nn.ModuleList()
                                 self.estimators_.extend(estimators)
