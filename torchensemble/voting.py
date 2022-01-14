@@ -190,6 +190,9 @@ def _parallel_fit_per_epoch(
             loss_weight[exit_mask_before] += args.hm_value
 
             loss_weight = F.softmax(loss_weight / args.div_tau) * batch_size
+
+            loss_weight = 1 if args.n_estimators == idx else loss_weight
+
             loss = torch.mean(loss_weight * loss)
 
             distill_criterion = DistillationLoss(
@@ -572,8 +575,9 @@ class VotingClassifier(BaseClassifier):
                     acc_same, _ = accuracy(ens[mask_increase], target[mask_increase]) if exit_rate > 0 else (ens.new_tensor([1]), 0)
 
                 # print(exit_rate, acc_same)
-                Exit_rate_l[idx].update(exit_rate.item(), batch_size)
-                Acc_same_l[idx].update(acc_same[0].item(), batch_size)
+                if idx < 3:
+                    Exit_rate_l[idx].update(exit_rate.item(), batch_size)
+                    Acc_same_l[idx].update(acc_same[0].item(), batch_size)
                 mask = mask_now
             proba = op.average(outputs)
             proba_sf = op.average(outputs_sf)
@@ -701,16 +705,24 @@ class VotingClassifier(BaseClassifier):
                                                  self.args
                                                  )
 
-                        acc = self.evaluate(test_loader, estimators_= estimators[:train_idx + 1])
+                        acc = self.evaluate(test_loader, estimators_=estimators[:train_idx + 1])
+                        if train_idx == self.n_estimators:
+                            acc = self.evaluate(test_loader, estimators_=(estimators[-1:] + estimators[1:-1]))
 
                         if acc > best_acc:
                             best_acc = acc
-                            self.estimators_dic = [[] for _ in range(self.n_estimators)]
-                            self.estimators_dic[train_idx] = estimators[train_idx].state_dict()
-                            self.estimators_ = nn.ModuleList()
-                            self.estimators_.extend(estimators)
-                            if save_model and train_idx + 1 == self.n_estimators:
-                                io.save(self, save_dir, self.logger)
+                            if train_idx == self.n_estimators:
+                                self.estimators_ = nn.ModuleList()
+                                self.estimators_.extend((estimators[-1:] + estimators[1:-1]))
+                                if save_model:
+                                    io.save(self, save_dir, self.logger)
+                            else:
+                                self.estimators_dic = [[] for _ in range(self.n_estimators)]
+                                self.estimators_dic[train_idx] = estimators[train_idx].state_dict()
+                                self.estimators_ = nn.ModuleList()
+                                self.estimators_.extend(estimators)
+                                if save_model and train_idx + 1 == self.n_estimators:
+                                    io.save(self, save_dir, self.logger)
 
                         msg = (
                             "Train_idx: {:03d} | Epoch: {:03d} | Validation Acc: {:.3f}"
