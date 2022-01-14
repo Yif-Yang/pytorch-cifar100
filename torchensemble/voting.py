@@ -177,30 +177,9 @@ def _parallel_fit_per_epoch(
 
         loss = (cls_w if args.aux_dis_lambda > 0 else 1) * cls_loss - loss_dis * dis_w * args.aux_dis_lambda
 
-
-        if idx == 0:
-            loss = torch.mean(loss)
-            distillation_loss = criterion(distill_out, target)
-            distillation_loss = torch.mean(distillation_loss)
-        else:
-            exit_mask_before, exit_dis_before, ens_old = look_up(data_id)
-            loss_weight = pred_1.new_ones(target.size()) * 1.0
-            if args.hm_add_dis:
-                loss_weight += exit_dis_before
-            loss_weight[exit_mask_before] += args.hm_value
-
-            loss_weight = F.softmax(loss_weight / args.div_tau) * batch_size
-            loss = torch.mean(loss_weight * loss)
-
-            # distill_criterion = DistillationLoss(
-            #    args.distillation_type, args.distillation_tau
-            # )
-            # distillation_loss = distill_criterion(torch.mean(ens_old, dim=1), distill_out)
-            # distillation_loss = torch.mean(loss_weight * distillation_loss)
-            distillation_loss = criterion(distill_out, target)
-            # distillation_loss = torch.mean(distillation_loss)
-
-            distillation_loss = torch.mean(loss_weight * distillation_loss)
+        loss = torch.mean(loss)
+        distillation_loss = criterion(distill_out, target)
+        distillation_loss = torch.mean(distillation_loss)
 
         loss = loss * (1 - args.distillation_alpha) + distillation_loss * args.distillation_alpha
 
@@ -333,25 +312,9 @@ def _parallel_test_per_epoch(
         loss = (cls_w if args.aux_dis_lambda > 0 else 1) * cls_loss - loss_dis * dis_w * args.aux_dis_lambda
 
 
-        if idx == 0:
-            loss = torch.mean(loss)
-            distillation_loss = criterion(distill_out, target)
-            distillation_loss = torch.mean(distillation_loss)
-        else:
-            exit_mask_before, exit_dis_before, ens_old = look_up(data_id)
-            loss_weight = pred_1.new_ones(target.size()) * 1.0
-            loss_weight[exit_mask_before] = 1.0 + args.hm_value
-
-            loss_weight = F.softmax(loss_weight / args.div_tau) * batch_size
-            loss = torch.mean(loss_weight * loss)
-
-            distillation_loss = criterion(distill_out, target)
-            distillation_loss = torch.mean(loss_weight * distillation_loss)
-
-            # distill_criterion = DistillationLoss(
-            #    args.distillation_type, args.distillation_tau
-            # )
-            # distillation_loss = distill_criterion(torch.mean(ens_old, dim=1), distill_out)
+        loss = torch.mean(loss)
+        distillation_loss = criterion(distill_out, target)
+        distillation_loss = torch.mean(distillation_loss)
 
         loss = loss * (1 - args.distillation_alpha) + distillation_loss * args.distillation_alpha
 
