@@ -636,11 +636,11 @@ class VotingClassifier(BaseClassifier):
 
         # Instantiate a pool of base estimators, optimizers, and schedulers.
         estimators = []
-        for _ in range(self.n_estimators):
+        for _ in range(self.n_estimators + 1):
             estimators.append(self._make_estimator())
 
         optimizers = []
-        for i in range(self.n_estimators):
+        for i in range(self.n_estimators + 1):
             optimizers.append(
                 set_module.set_optimizer(
                     estimators[i], self.optimizer_name, **self.optimizer_args
@@ -652,7 +652,7 @@ class VotingClassifier(BaseClassifier):
             self._criterion = nn.CrossEntropyLoss()
 
         # Training loop
-        for train_idx in range(self.n_estimators):
+        for train_idx in range(self.n_estimators + 1):
             if self.use_scheduler_:
                 scheduler_ = set_module.set_scheduler(
                     optimizers[train_idx], self.scheduler_name, **self.scheduler_args
@@ -660,6 +660,7 @@ class VotingClassifier(BaseClassifier):
             best_acc = 0.0
             if train_idx > 0:
                 estimators[train_idx - 1].load_state_dict(self.estimators_dic[train_idx - 1])
+
             for epoch in range(epochs):
                 self.train()
 
