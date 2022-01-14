@@ -74,6 +74,7 @@ if __name__ == '__main__':
     parser.add_argument('-distillation-tau', default=1.0, type=float, help="")
     parser.add_argument('-distillation-type', default='soft', choices=['none', 'soft', 'hard'], type=str, help="")
     parser.add_argument('-div-tau', default=1.0, type=float, help="")
+    parser.add_argument('-hm_add_dis', action='store_true', default=False, help='add_dis_w training')
 
     args = parser.parse_args()
     if args.seed > -1:
