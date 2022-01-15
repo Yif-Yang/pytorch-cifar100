@@ -205,7 +205,7 @@ def _parallel_fit_per_epoch(
 
             ensemble_loss = criterion((ens + ens_old) / 2, target)
             loss = loss * (1 - args.distillation_alpha) + distillation_loss * args.distillation_alpha
-            loss += args.ensemble_alpha * ensemble_loss
+            loss = loss * (1 - args.ensemble_alpha) + ensemble_loss * args.ensemble_alpha
             Loss_ensemble.update(ensemble_loss.item(), batch_size)
 
 
