@@ -3,7 +3,7 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument('-net', type=str, default='resnet18_new', help='net type')
 parser.add_argument('-work_dir', type=str, default='./work_dir', help='dir name')
-parser.add_argument('-exp_name', type=str, default='hm', help='exp_name ')
+parser.add_argument('-exp_name', type=str, default='hm_ensemble', help='exp_name ')
 parser.add_argument('-runs', type=str, default='fix_mask', help='exp_name ')
 parser.add_argument('-blob_dir', type=str, default='/blob_aml_k8s_skt_yif_resrchvc4data/output/ensemble/cifar100',
                     help='dir name')
@@ -30,7 +30,7 @@ parser.add_argument('-ensemble_alpha', default=1.0, type=float, help="")
 args = parser.parse_args()
 if not os.path.exists('./work_dir'):
       os.mkdir('./work_dir')
-exp_name = f"{args.exp_name}_{args.net}_nEns-{args.n_estimators}_lr{args.lr}_dis-length-{args.aux_dis_lambda}_hm-value-{args.hm_value}_" \
+exp_name = f"{args.exp_name}_{args.net}_nEns-{args.n_estimators}_lr{args.lr}_dis-length-{args.aux_dis_lambda}_hm-value-{args.hm_value}_ensemble_alpha-{args.ensemble_alpha}_" \
            f"{f'nesterov_' if args.nesterov else ''}{f'add_cls_w_' if args.add_cls_w else ''}{f'add_dis_w_' if args.add_dis_w else ''}{f'hm_add_dis_' if args.hm_add_dis else ''}{f'no_hm_' if args.no_hm else ''}" \
            f"distillation-type-{args.distillation_type}_distillation-alpha-{args.distillation_alpha}_distillation-tau-{args.distillation_tau}_" \
            f"_div-tau-{args.div_tau}_{f'seed_{args.seed}' if args.seed > -1 else ''}_run-{args.runs}"
