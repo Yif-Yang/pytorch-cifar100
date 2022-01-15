@@ -24,12 +24,13 @@ parser.add_argument('-distillation-alpha', default=0.5, type=float, help="")
 parser.add_argument('-distillation-tau', default=1.0, type=float, help="")
 parser.add_argument('-div-tau', default=1.0, type=float, help="")
 parser.add_argument('-hm_add_dis', action='store_true', default=False, help='add_dis_w training')
+parser.add_argument('-no_hm', action='store_true', default=False, help='add_dis_w training')
 
 args = parser.parse_args()
 if not os.path.exists('./work_dir'):
       os.mkdir('./work_dir')
 exp_name = f"{args.exp_name}_{args.net}_nEns-{args.n_estimators}_lr{args.lr}_dis-length-{args.aux_dis_lambda}_hm-value-{args.hm_value}_" \
-           f"{f'nesterov_' if args.nesterov else ''}{f'add_cls_w_' if args.add_cls_w else ''}{f'add_dis_w_' if args.add_dis_w else ''}{f'hm_add_dis_' if args.hm_add_dis else ''}" \
+           f"{f'nesterov_' if args.nesterov else ''}{f'add_cls_w_' if args.add_cls_w else ''}{f'add_dis_w_' if args.add_dis_w else ''}{f'hm_add_dis_' if args.hm_add_dis else ''}{f'no_hm_' if args.no_hm else ''}" \
            f"distillation-type-{args.distillation_type}_distillation-alpha-{args.distillation_alpha}_distillation-tau-{args.distillation_tau}_" \
            f"_div-tau-{args.div_tau}_{f'seed_{args.seed}' if args.seed > -1 else ''}_run-{args.runs}"
 cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
@@ -48,6 +49,7 @@ cmd = f"CUDA_VISIBLE_DEVICES={args.gpu} " \
       f"{f'-add_cls_w ' if args.add_cls_w else ''}" \
       f"{f'-add_dis_w ' if args.add_dis_w else ''}" \
       f"{f'-hm_add_dis ' if args.hm_add_dis else ''}" \
+      f"{f'-no_hm ' if args.no_hm else ''}" \
       f"-blob_dir={args.blob_dir} " \
       f"-seed={args.seed} " \
       f"> {exp_name}.out &"

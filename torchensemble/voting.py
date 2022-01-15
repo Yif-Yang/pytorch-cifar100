@@ -190,6 +190,9 @@ def _parallel_fit_per_epoch(
             loss_weight[exit_mask_before] += args.hm_value
 
             loss_weight = F.softmax(loss_weight / args.div_tau) * batch_size
+
+            loss_weight = 1 if args.no_hm else loss_weight
+
             loss = torch.mean(loss_weight * loss)
 
             distill_criterion = DistillationLoss(
