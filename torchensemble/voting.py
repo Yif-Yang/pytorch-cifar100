@@ -116,6 +116,7 @@ def _parallel_fit_per_epoch(
     Loss_cls_ens = AverageMeter('Loss_cls_ens', ':6.3f')
     Loss_distill = AverageMeter('Loss_distill', ':6.3f')
     Loss_dis = AverageMeter('Loss_dis', ':6.3f')
+    Loss_ensemble = AverageMeter('Loss_ensemble', ':6.3f')
     Acc1 = AverageMeter('Acc1@1', ':6.2f')
     Acc2 = AverageMeter('Acc2@1', ':6.2f')
     Acc_aux_ens = AverageMeter('Acc_aux_ens@1', ':6.2f')
@@ -128,7 +129,7 @@ def _parallel_fit_per_epoch(
 
     progress = ProgressMeter(
         len(train_loader),
-        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Loss_distill, Exit_rate, Acc_same, Acc1, Acc2, Acc_aux_ens, Acc_distill, Acc_ens, Acc_ens_sf],
+        [Batch_time, Data_time, Train_loss, Loss_cls_1, Loss_cls_2, Loss_cls_ens, Loss_dis, Loss_distill, Loss_ensemble, Exit_rate, Acc_same, Acc1, Acc2, Acc_aux_ens, Acc_distill, Acc_ens, Acc_ens_sf],
         prefix=f"Epoch: [{epoch}] Ens:[{idx}] Lr:[{optimizer.state_dict()['param_groups'][0]['lr']:.5f}]",
     logger = logger)
     end = time.time()
@@ -182,6 +183,7 @@ def _parallel_fit_per_epoch(
             loss = torch.mean(loss)
             distillation_loss = criterion(distill_out, target)
             distillation_loss = torch.mean(distillation_loss)
+            loss = loss * (1 - args.distillation_alpha) + distillation_loss * args.distillation_alpha
         else:
             exit_mask_before, exit_dis_before, ens_old = look_up(data_id)
             loss_weight = pred_1.new_ones(target.size()) * 1.0
@@ -201,7 +203,11 @@ def _parallel_fit_per_epoch(
             distillation_loss = distill_criterion(torch.mean(ens_old, dim=1), distill_out)
             distillation_loss = torch.mean(loss_weight * distillation_loss)
 
-        loss = loss * (1 - args.distillation_alpha) + distillation_loss * args.distillation_alpha
+            ensemble_loss = criterion((ens + ens_old) / 2, target)
+            loss = loss * (1 - args.distillation_alpha) + distillation_loss * args.distillation_alpha
+            loss += args.ensemble_alpha * ensemble_loss
+            Loss_ensemble.update(ensemble_loss.item(), batch_size)
+
 
         # loss_weight = pred_1.new_ones(target.size()) * 1.0 - hm_value
             # loss_weight[exit_mask_before] = 1.0

@@ -25,6 +25,7 @@ parser.add_argument('-distillation-tau', default=1.0, type=float, help="")
 parser.add_argument('-div-tau', default=1.0, type=float, help="")
 parser.add_argument('-hm_add_dis', action='store_true', default=False, help='add_dis_w training')
 parser.add_argument('-no_hm', action='store_true', default=False, help='add_dis_w training')
+parser.add_argument('-ensemble_alpha', default=1.0, type=float, help="")
 
 args = parser.parse_args()
 if not os.path.exists('./work_dir'):
