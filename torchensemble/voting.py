@@ -196,14 +196,14 @@ def _parallel_fit_per_epoch(
             loss_weight = 1 if args.no_hm else loss_weight
 
             loss = torch.mean(loss_weight * loss)
-
+            mean_old_ens = torch.mean(ens_old, dim=1)
             distill_criterion = DistillationLoss(
                args.distillation_type, args.distillation_tau
             )
-            distillation_loss = distill_criterion(torch.mean(ens_old, dim=1), distill_out)
+            distillation_loss = distill_criterion(mean_old_ens, distill_out)
             distillation_loss = torch.mean(loss_weight * distillation_loss)
 
-            ensemble_loss = criterion((ens + ens_old) / 2, target)
+            ensemble_loss = criterion(mean_old_ens, target)
             loss = loss * (1 - args.distillation_alpha) + distillation_loss * args.distillation_alpha
             loss += args.ensemble_alpha * ensemble_loss
             Loss_ensemble.update(ensemble_loss.item(), batch_size)
