@@ -508,18 +508,21 @@ class VotingClassifier(BaseClassifier):
         Acc1_sf = AverageMeter('Acc1_sf@1', ':6.2f')
         Acc1_ens = AverageMeter('Acc1_ens@1', ':6.2f')
         Acc1_ens_sf = AverageMeter('Acc1_ens_sf@1', ':6.2f')
-        Acc_same_1 = AverageMeter('Acc_same_1@1', ':6.2f')
-        Acc_same_2 = AverageMeter('Acc_same_2@1', ':6.2f')
-        Acc_same_3 = AverageMeter('Acc_same_3@1', ':6.2f')
 
-        Exit_rate_1 = AverageMeter('Exit_rate_1@1', ':6.2f')
-        Exit_rate_2 = AverageMeter('Exit_rate_2@1', ':6.2f')
-        Exit_rate_3 = AverageMeter('Exit_rate_3@1', ':6.2f')
-        Acc_same_l = [Acc_same_1, Acc_same_2, Acc_same_3]
-        Exit_rate_l = [Exit_rate_1, Exit_rate_2, Exit_rate_3]
+        # Acc_same_1 = AverageMeter('Acc_same_1@1', ':6.2f')
+        # Acc_same_2 = AverageMeter('Acc_same_2@1', ':6.2f')
+        # Acc_same_3 = AverageMeter('Acc_same_3@1', ':6.2f')
+
+        # Exit_rate_1 = AverageMeter('Exit_rate_1@1', ':6.2f')
+        # Exit_rate_2 = AverageMeter('Exit_rate_2@1', ':6.2f')
+        # Exit_rate_3 = AverageMeter('Exit_rate_3@1', ':6.2f')
+        # Acc_same_l = [Acc_same_1, Acc_same_2, Acc_same_3]
+        # Exit_rate_l = [Exit_rate_1, Exit_rate_2, Exit_rate_3]
+        Acc_same_l = [AverageMeter(f'Acc_same_{idx + 1}', ':6.2f') for idx in range(self.args.n_estimators)]
+        Exit_rate_l = [AverageMeter(f'Exit_rate_{idx + 1}', ':6.2f') for idx in range(self.args.n_estimators)]
         progress = ProgressMeter(
             len(test_loader),
-            [Acc1_ens, Acc1_ens_sf, Acc1, Acc1_sf, Exit_rate_1, Exit_rate_2, Exit_rate_3, Acc_same_1, Acc_same_2, Acc_same_3],
+            [Acc1_ens, Acc1_ens_sf, Acc1, Acc1_sf,] + Exit_rate_l + Acc_same_l,
             prefix=f"Eval: ",
             logger = self.logger)
         # dis_len_t_l = [[] for i in range(3)]
@@ -590,14 +593,16 @@ class VotingClassifier(BaseClassifier):
             Acc1_sf.update(acc_sf[0].item(), batch_size)
             Acc1_ens.update(acc_ens_1[0].item(), batch_size)
             Acc1_ens_sf.update(acc_ens_sf[0].item(), batch_size)
-            cost_1 = Exit_rate_l[0].avg * 0.01
-            cost_2 = Exit_rate_l[1].avg * 0.01
-            cost = cost_1 + cost_2 * 2 + (1 - cost_1 - cost_2) * 3
-        # dis_len_t_l = [torch.cat(x) for x in dis_len_t_l]
-        # dis_len_f_l = [torch.cat(x) for x in dis_len_f_l]
+        cost = 0
+        exit_rate_all = 0
+        for i in range(self.args.n_estimators):
+            exit_rate_all += Exit_rate_l[i].avg * 0.01
+            cost += Exit_rate_l[i].avg * 0.01 * (i + 1)
+        cost += (1 - exit_rate_all) * self.args.n_estimators
+
         self.logger.info(progress.display_avg())
         self.logger.info(f'Now inference cost:{cost:.3f}x base model')
-        return Acc1_ens.avg
+        return Acc1.avg
     @torchensemble_model_doc(
         """Set the attributes on optimizer for VotingClassifier.""",
         "set_optimizer",
