@@ -602,7 +602,7 @@ class VotingClassifier(BaseClassifier):
 
         self.logger.info(progress.display_avg())
         self.logger.info(f'Now inference cost:{cost:.3f}x base model')
-        return Acc1.avg
+        return Acc1_ens.avg
     @torchensemble_model_doc(
         """Set the attributes on optimizer for VotingClassifier.""",
         "set_optimizer",
