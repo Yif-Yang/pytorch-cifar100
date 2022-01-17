@@ -91,9 +91,10 @@ if __name__ == '__main__':
         torch.backends.cudnn.benchmark = True
         print('not set seed')
     loss_function = nn.CrossEntropyLoss(reduce=False)
-    from models.resnet_new import ResNet, BasicBlock
+    from utils import get_network
+    estimator, estimator_args = get_network(args)
     net = VotingClassifier(
-        estimator=ResNet, n_estimators=args.n_estimators, estimator_args={"block": BasicBlock, "num_blocks": [2, 2, 2, 2], 'num_classes':100}, cuda=True, n_jobs=args.n_jobs, args=args
+        estimator=estimator, n_estimators=args.n_estimators, estimator_args=estimator_args, cuda=True, n_jobs=args.n_jobs, args=args
     )
     net.set_optimizer('SGD', lr=args.lr, momentum=0.9, weight_decay=5e-4, nesterov=args.nesterov)
     net.set_scheduler('MultiStepLR', milestones=settings.MILESTONES, gamma=0.2)

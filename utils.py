@@ -30,8 +30,8 @@ def get_network(args):
         from models.vgg import vgg11_bn
         net = vgg11_bn()
     elif args.net == 'vgg19':
-        from models.vgg import vgg19_bn
-        net = vgg19_bn()
+        from models.vgg import VGG, make_layers, cfg
+        return VGG, {'features': make_layers(cfg['E'], batch_norm=True), 'num_class': 100}
     elif args.net == 'densenet121':
         from models.densenet import densenet121
         net = densenet121()
@@ -63,11 +63,11 @@ def get_network(args):
         from models.resnet import resnet18
         net = resnet18()
     elif args.net == 'resnet18_new':
-        from models.resnet_new import ResNet18
-        net = ResNet18(num_classes=100)
-    elif args.net == 'resnet34':
-        from models.resnet import resnet34
-        net = resnet34()
+        from models.resnet_new import ResNet, BasicBlock
+        return ResNet, {"block": BasicBlock, "num_blocks": [2, 2, 2, 2], 'num_classes':100}
+    elif args.net == 'resnet34_new':
+        from models.resnet_new import ResNet, BasicBlock
+        return ResNet, {"block": BasicBlock, "num_blocks": [3,4,6,3], 'num_classes':100}
     elif args.net == 'resnet50':
         from models.resnet import resnet50
         net = resnet50()
