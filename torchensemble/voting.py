@@ -606,25 +606,22 @@ class VotingClassifier(BaseClassifier):
         self._validate_parameters(epochs, log_interval)
         self.n_outputs = self._decide_n_outputs(train_loader)
 
-        # Instantiate a pool of base estimators, optimizers, and schedulers.
-        estimators = []
-        for _ in range(self.n_estimators):
-            estimators.append(self._make_estimator())
-
-        optimizers = []
-        for i in range(self.n_estimators):
-            optimizers.append(
-                set_module.set_optimizer(
-                    estimators[i], self.optimizer_name, **self.optimizer_args
-                )
-            )
-
         # Check the training criterion
         if not hasattr(self, "_criterion"):
             self._criterion = nn.CrossEntropyLoss()
 
+        estimators = []
+        optimizers = []
         # Training loop
         for train_idx in range(self.n_estimators):
+            if train_idx % 3 == 0:
+                for i in range(3):
+                    estimators.append(self._make_estimator())
+                    optimizers.append(
+                        set_module.set_optimizer(
+                            estimators[train_idx + i], self.optimizer_name, **self.optimizer_args
+                        )
+                    )
             if self.use_scheduler_:
                 scheduler_ = set_module.set_scheduler(
                     optimizers[train_idx], self.scheduler_name, **self.scheduler_args
