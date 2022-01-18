@@ -650,12 +650,14 @@ class VotingClassifier(BaseClassifier):
         optimizers = []
         # Training loop
         for train_idx in range(self.n_estimators):
-            estimators.append(self._make_estimator())
-            optimizers.append(
-                set_module.set_optimizer(
-                    estimators[train_idx], self.optimizer_name, **self.optimizer_args
-                )
-            )
+            if train_idx % 3 == 0:
+                for i in range(3):
+                    estimators.append(self._make_estimator())
+                    optimizers.append(
+                        set_module.set_optimizer(
+                            estimators[train_idx + i], self.optimizer_name, **self.optimizer_args
+                        )
+                    )
             if self.use_scheduler_:
                 scheduler_ = set_module.set_scheduler(
                     optimizers[train_idx], self.scheduler_name, **self.scheduler_args
