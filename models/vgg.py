@@ -33,15 +33,30 @@ class VGG(nn.Module):
             nn.Dropout(),
 
         )
-        self.linear_1 = nn.Linear(4096, num_class)
-        self.linear_2 = nn.Linear(4096, num_class)
-        self.linear_distill = nn.Linear(4096, num_class)
+        self.linear_1 = nn.Sequential(
+            nn.Linear(512, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+
+        )
+        self.linear_2 = nn.Sequential(
+            nn.Linear(512, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+
+        )
 
     def forward(self, x):
         output = self.features(x)
         output = output.view(output.size()[0], -1)
         output = self.classifier(output)
-        out = self.linear_1(output), self.linear_2(output), self.linear_distill(output)
+        out = self.classifier(output), self.linear_1(output), self.linear_2(output)
         return out
 
 def make_layers(cfg, batch_norm=False):
