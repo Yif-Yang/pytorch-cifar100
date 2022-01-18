@@ -65,6 +65,9 @@ def get_network(args):
     elif args.net == 'resnet18_new':
         from models.resnet_new import ResNet, BasicBlock
         return ResNet, {"block": BasicBlock, "num_blocks": [2, 2, 2, 2], 'num_classes':100}
+    elif args.net == 'resnet32':
+        from models.resnet32 import ResNet, BasicBlock
+        return ResNet, {"block": BasicBlock, "num_blocks": [5, 5, 5], 'num_classes':100}
     elif args.net == 'resnet34_new':
         from models.resnet_new import ResNet, BasicBlock
         return ResNet, {"block": BasicBlock, "num_blocks": [3,4,6,3], 'num_classes':100}
