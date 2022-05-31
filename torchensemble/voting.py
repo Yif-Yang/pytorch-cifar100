@@ -711,13 +711,13 @@ class VotingClassifier(BaseClassifier):
                         acc = self.evaluate(test_loader, estimators_= estimators[:train_idx + 1])
 
                         # if acc > best_acc:
-                        #     best_acc = acc
-                        #     self.estimators_dic = [[] for _ in range(self.n_estimators)]
-                        #     self.estimators_dic[train_idx] = estimators[train_idx].state_dict()
-                        #     self.estimators_ = nn.ModuleList()
-                        #     self.estimators_.extend(estimators)
-                        #     if save_model and train_idx + 1 == self.n_estimators:
-                        #         io.save(self, save_dir, self.logger)
+                        best_acc = acc
+                        # self.estimators_dic = [[] for _ in range(self.n_estimators)]
+                        # self.estimators_dic[train_idx] = estimators[train_idx].state_dict()
+                        self.estimators_ = nn.ModuleList()
+                        self.estimators_.extend(estimators)
+                        if save_model and train_idx + 1 == self.n_estimators:
+                            io.save(self, save_dir, self.logger)
 
                         msg = (
                             "Train_idx: {:03d} | Epoch: {:03d} | Validation Acc: {:.3f}"
